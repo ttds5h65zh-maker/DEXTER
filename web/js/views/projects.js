@@ -41,7 +41,7 @@ function mountList(page, ctx) {
     let projects = [];
     try { projects = await loadProjects(true); } catch (err) { errorToast(err); }
     clear(grid);
-    if (!projects.length) { grid.append(h('div', { class: 'card', style: { gridColumn: '1 / -1' } }, empty('No courses yet', 'Add your AUS courses for this term — or paste a syllabus into chat and Dexter will set the course up with its grading breakdown.'))); return; }
+    if (!projects.length) { grid.append(h('div', { class: 'card', style: { gridColumn: '1 / -1' } }, empty('No courses yet', 'Add your AUS courses for this term — or paste a syllabus into chat and Dexter Almana will set the course up with its grading breakdown.'))); return; }
     for (const p of projects) {
       const g = p.grade;
       grid.append(h('a', { class: 'card card-pad', href: `#/projects/${p.id}`, style: { color: 'inherit', textDecoration: 'none', display: 'block' } },
@@ -96,7 +96,7 @@ function mountDetail(page, ctx, id) {
     body.append(h('div', { class: 'today-grid' },
       h('div', { class: 'stack' },
         h('div', { class: 'card card-pad' }, h('h3', {}, 'Description'), h('p', { class: 'small', style: { whiteSpace: 'pre-wrap', marginTop: '6px' } }, p.description || 'No description yet.')),
-        h('div', { class: 'card card-pad' }, h('h3', {}, 'Requirements'), h('p', { class: 'small', style: { whiteSpace: 'pre-wrap', marginTop: '6px' } }, p.requirements || 'Paste syllabus requirements via Edit, or ask Dexter to extract them from the syllabus.'))),
+        h('div', { class: 'card card-pad' }, h('h3', {}, 'Requirements'), h('p', { class: 'small', style: { whiteSpace: 'pre-wrap', marginTop: '6px' } }, p.requirements || 'Paste syllabus requirements via Edit, or ask Dexter Almana to extract them from the syllabus.'))),
       h('div', { class: 'stack' },
         h('div', { class: 'card card-pad' }, h('h3', {}, 'Grade so far'), h('div', { class: 'stats', style: { marginTop: '10px' } },
           h('div', { class: 'stat' }, h('div', { class: 'v' }, g.current_percent != null ? `${g.current_percent}%` : '—'), h('div', { class: 'l' }, 'weighted average of graded work')),
@@ -161,7 +161,7 @@ function mountDetail(page, ctx, id) {
     const docs = h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Documents & drafts'), btn('New document', async () => {
       try { const { document } = await api.post('/api/documents', { title: `${d.project.code || d.project.name} draft`, content: '', project_id: id }); ctx.navigate(`#/files/documents/${document.id}`); } catch (e) { errorToast(e); }
     }, { size: 'sm', ic: 'plus' })));
-    if (!d.documents.length) docs.append(empty('No documents', 'Assignment drafts Dexter writes for this course appear here.'));
+    if (!d.documents.length) docs.append(empty('No documents', 'Assignment drafts Dexter Almana writes for this course appear here.'));
     for (const x of d.documents) docs.append(h('div', { class: 'task-row', onclick: () => ctx.navigate(`#/files/documents/${x.id}`) }, icon('doc', 16), h('div', { class: 'grow' }, h('div', { class: 't' }, x.title), h('div', { class: 'meta small' }, `v${x.version} · ${x.locked ? `${x.locked} approved passage(s) · ` : ''}${fmtAgo(x.updated_at)}`))));
     body.append(h('div', { class: 'stack' }, files, docs));
   }

@@ -60,7 +60,7 @@ export function createTaskService(app) {
     db.run(`INSERT INTO tasks (id, title, description, status, priority, due_at, due_has_time, project_id, conversation_id, source_message_id, origin, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     t.id, t.title, t.description, t.status, t.priority, t.due_at, t.due_has_time, t.project_id, t.conversation_id, t.source_message_id, t.origin, t.created_at, t.updated_at);
-    addEvent(t.id, 'created', actor === 'dexter' ? 'Created by Dexter from the conversation' : 'Created', { actor, conversation_id: t.conversation_id });
+    addEvent(t.id, 'created', actor === 'dexter' ? `Created by ${app.settings.get('profile').assistant_name} from the conversation` : 'Created', { actor, conversation_id: t.conversation_id });
     const task = get(t.id);
     bus.publish('task.updated', { task });
     return task;

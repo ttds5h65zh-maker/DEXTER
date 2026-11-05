@@ -101,7 +101,7 @@ function mountFiles(root, ctx, selectedId) {
         h('div', { class: 'btn-row' },
           h('a', { class: 'btn sm', href: `/api/files/${f.id}/download` }, icon('download', 14), 'Download'),
           f.conversation_id ? btn('', () => ctx.navigate(`#/chat/${f.conversation_id}`), { kind: 'ghost', ic: 'chat', title: 'Open conversation', size: 'sm' }) : null,
-          btn('', async () => { if (await confirmDialog('Delete file?', `“${f.name}” will be permanently deleted from Dexter.`, { confirmLabel: 'Delete', danger: true })) { await api.del(`/api/files/${f.id}`).catch(errorToast); selected = null; history.replaceState(null, '', '#/files'); render(); renderPanel(); } }, { kind: 'ghost', ic: 'trash', title: 'Delete file', size: 'sm' }))),
+          btn('', async () => { if (await confirmDialog('Delete file?', `“${f.name}” will be permanently deleted from Dexter Almana.`, { confirmLabel: 'Delete', danger: true })) { await api.del(`/api/files/${f.id}`).catch(errorToast); selected = null; history.replaceState(null, '', '#/files'); render(); renderPanel(); } }, { kind: 'ghost', ic: 'trash', title: 'Delete file', size: 'sm' }))),
       h('div', { class: 'card-body' }, h('div', { class: 'field' }, h('label', {}, 'Name'), name), h('div', { class: 'grid-2' }, h('div', { class: 'field' }, h('label', {}, 'Folder'), folderIn), h('div', { class: 'field' }, h('label', {}, 'Course / project'), proj))),
       preview));
   }
@@ -113,7 +113,7 @@ function mountFiles(root, ctx, selectedId) {
 
 function mountDocList(root, ctx) {
   const listEl = h('div', { class: 'card' });
-  root.append(h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, 'Documents'), h('p', {}, 'Drafts you and Dexter write together. Approve wording to lock it — Dexter cannot change locked passages.')),
+  root.append(h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, 'Documents'), h('p', {}, 'Drafts you and Dexter Almana write together. Approve wording to lock it — Dexter Almana cannot change locked passages.')),
     btn('New document', async () => {
       try { const { document } = await api.post('/api/documents', { title: 'Untitled document', content: '' }); ctx.navigate(`#/files/documents/${document.id}`); } catch (e) { errorToast(e); }
     }, { kind: 'primary', ic: 'plus' })), listEl);
@@ -122,7 +122,7 @@ function mountDocList(root, ctx) {
     let docs = [];
     try { docs = (await api.get('/api/documents')).documents; } catch (e) { errorToast(e); }
     clear(listEl);
-    if (!docs.length) { listEl.append(empty('No documents yet', 'Ask Dexter to draft an essay, report or email — or start one here.')); return; }
+    if (!docs.length) { listEl.append(empty('No documents yet', 'Ask Dexter Almana to draft an essay, report or email — or start one here.')); return; }
     for (const d of docs) listEl.append(h('div', { class: 'task-row', tabindex: '0', role: 'button', onclick: () => ctx.navigate(`#/files/documents/${d.id}`), onkeydown: (e) => { if (e.key === 'Enter') ctx.navigate(`#/files/documents/${d.id}`); } },
       icon('doc', 16), h('div', { class: 'grow' }, h('div', { class: 't' }, d.title), h('div', { class: 'meta small' }, `v${d.version} · ${d.locked ? `${d.locked} approved passage(s) · ` : ''}updated ${fmtAgo(d.updated_at)}`))));
   })();
@@ -175,13 +175,13 @@ function mountEditor(root, ctx, id) {
           btn('', async () => { if (await confirmDialog('Delete document?', 'All versions will be deleted. Exported files stay in Files.', { confirmLabel: 'Delete', danger: true })) { await api.del(`/api/documents/${id}`).catch(errorToast); ctx.navigate('#/files/documents'); } }, { kind: 'ghost', ic: 'trash', title: 'Delete document' }))),
       h('div', { class: 'doc-editor' }, ta, previewEl),
       h('div', { class: 'grid-2', style: { marginTop: '16px' } },
-        h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Approved wording'), h('div', { class: 'sub' }, 'Locked passages Dexter must keep verbatim')),
+        h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Approved wording'), h('div', { class: 'sub' }, 'Locked passages Dexter Almana must keep verbatim')),
           h('div', { class: 'card-body' }, doc.locked.length ? doc.locked.map((l) => h('div', { class: 'row', style: { alignItems: 'flex-start' } }, icon('lock', 15),
             h('div', { class: 'grow small' }, `“${l.text.length > 220 ? `${l.text.slice(0, 220)}…` : l.text}”`, h('div', { class: 'tiny muted' }, `Approved ${fmtAgo(l.approved_at)}`)),
             btn('Unlock', async () => { try { doc = (await api.post(`/api/documents/${id}/unlock`, { lock_id: l.id })).document; render(); } catch (e) { errorToast(e); } }, { size: 'sm' })))
             : h('div', { class: 'small muted' }, 'Select text in the editor and press “Approve selected wording” to lock it.'))),
         h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', {}, 'Version history')),
-          h('div', { class: 'card-body' }, versions.map((v) => h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't small' }, `v${v.version} · ${v.author === 'dexter' ? 'Dexter' : 'You'}`), h('div', { class: 'tiny muted' }, `${v.note || ''} · ${fmtDateTime(v.created_at)}`)),
+          h('div', { class: 'card-body' }, versions.map((v) => h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't small' }, `v${v.version} · ${v.author === 'dexter' ? 'Dexter Almana' : 'You'}`), h('div', { class: 'tiny muted' }, `${v.note || ''} · ${fmtDateTime(v.created_at)}`)),
             v.version !== doc.version ? btn('View', async () => { try { const { version } = await api.get(`/api/documents/${id}/versions/${v.version}`); dialog({ title: `Version ${v.version}`, wide: true, body: renderMarkdown(version.content), actions: [{ label: 'Close' }, { label: 'Restore this version', kind: 'primary', onClick: async () => { ta.value = version.content; dirty = true; await save(); } }] }); } catch (e) { errorToast(e); } }, { size: 'sm' }) : h('span', { class: 'tag accent' }, 'current')))))));
     drawPreview();
   }

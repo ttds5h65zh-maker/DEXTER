@@ -1,16 +1,18 @@
-# Dexter
+# Dexter Almana
 
-Sultan's personal AI assistant. Dexter understands his context (AUS, Information Systems & Business Analytics, Asia/Dubai), remembers useful information, organises ongoing work, and completes practical tasks through connected tools. Anything that sends, submits, changes or deletes something waits for his explicit approval.
+Sultan's personal AI assistant. Dexter Almana understands his context (AUS, Information Systems & Business Analytics, Asia/Dubai), remembers useful information, organises ongoing work, and completes practical tasks through connected tools. Anything that sends, submits, changes or deletes something waits for his explicit approval.
 
-- **Chat** – streaming replies, persistent conversations, file attachments, visible tool activity, inline approvals and sign-in hand-offs.
-- **Today** – what needs you, what is due, today's calendar, scheduled reminders/briefings/monitors, work in progress, latest briefing.
-- **Tasks** – created by you or by Dexter from conversations, with status (planned, running, blocked, awaiting approval, completed), a timeline, the recorded outcome and evidence (confirmation ids). Interrupted work can be resumed.
-- **Schedules** – one-off reminders, recurring briefings, monitors that notify only when a condition is met, and recurring Dexter work, all on a real scheduler with retries, cancellation and duplicate prevention.
-- **Courses** – AUS courses/projects with requirements, weighted grade items and current grade, tasks, files and drafts.
-- **Memory** – preferences and context with source and last update; add, edit, pin, delete.
-- **Files & Documents** – upload, preview (images, PDF, text, Word), organise by folder/course, download. Markdown documents with version history, "approved wording" locks that Dexter cannot change, and export to Word, Markdown or HTML.
-- **Approvals** – the exact action and content (recipients, body, event times, form fields, page screenshot) plus a warning when external content was read. Optional "don't ask again" for one narrowly scoped kind of action, revocable.
-- **Settings** – profile and timezone, model, integrations, notifications (desktop, phone push, quiet hours, daily briefing), permissions.
+The interface is deliberately quiet: a warm, writing-first design with serif replies, one sidebar and a single centred conversation.
+
+- **Sidebar** – *New chat*, four places (Today, Tasks, Courses, Files), your recent chats, and a profile menu with Settings, Memory, Reminders & routines, Approvals and theme. A small banner appears only when something is waiting for you.
+- **Chat** – new chats open on a greeting with the composer in the middle. Replies stream in; each tool Dexter Almana uses shows as a quiet one-line step you can expand; approvals and sign-in hand-offs appear right in the conversation; Send becomes Stop while it works. Attach files with **+** or by dropping them.
+- **Today** – what needs you (only when something does), what's due soon, today's calendar and reminders, and **Brief me**.
+- **Tasks** – grouped by Overdue / Today / This week / Later, with a simple detail panel: due, status, course, notes, the recorded outcome and an Activity log with evidence (confirmation ids). Interrupted work can be resumed. **Reminders & routines** (one-off reminders, daily briefings, "tell me when…" watches) run on a real scheduler with retries, cancellation and duplicate prevention.
+- **Courses** – AUS courses with requirements, weighted grade items and current grade, tasks, files and drafts.
+- **Files** – upload, preview (images, PDF, text, Word), organise, download. Documents keep version history and "approved wording" locks the assistant cannot change, and export to Word, Markdown or HTML.
+- **Settings** – General (including the assistant's name), Connections, Notifications, Privacy (what it may do without asking, and anything you said not to ask about again), and Memory (inspect, edit, pin, delete — each with its source and last update).
+
+The assistant's name defaults to **Dexter Almana** and can be changed in Settings → General.
 
 ## Quick start
 
@@ -23,7 +25,7 @@ npm start                   # http://localhost:3210
 
 `npm run dev` restarts on server changes. Data (SQLite database, uploaded files, the generated encryption key, the browser profile) lives in `./data/`, which is git-ignored.
 
-Without an API key Dexter still runs: it shows a clear "Claude is not connected" state, and the commands `/task`, `/remind`, `/remember`, `/brief` and `/jobs` perform real local actions.
+Without an API key Dexter Almana still runs: it shows a clear "Claude is not connected" state, and the commands `/task`, `/remind`, `/remember`, `/brief` and `/jobs` perform real local actions.
 
 ### Optional: visible browser for iLearn and Banner
 
@@ -32,7 +34,7 @@ npm install playwright
 npx playwright install chromium
 ```
 
-Run Dexter on your own computer (with a display) so the browser window is visible; sign-in and MFA are handed to you. Set the iLearn and Banner Self-Service addresses in **Settings → Integrations**.
+Run it on your own computer (with a display) so the browser window is visible; sign-in and MFA are handed to you. Set the iLearn and Banner addresses in **Settings → Connections**.
 
 ## Environment variables
 
@@ -58,7 +60,7 @@ Run Dexter on your own computer (with a display) so the browser window is visibl
 1. In Google Cloud Console, create a project and enable the **Gmail API** and **Google Calendar API**.
 2. Configure the OAuth consent screen (testing mode is fine) and add your Google account as a test user.
 3. Create an **OAuth client ID → Web application** with the authorised redirect URI `PUBLIC_URL/api/integrations/google/callback` (for example `http://localhost:3210/api/integrations/google/callback`).
-4. Put `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env`, restart Dexter, then press **Connect Google** in **Settings → Integrations**.
+4. Put `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env`, restart Dexter, then press **Connect Google** in **Settings → Connections**.
 
 Scopes requested: `gmail.readonly`, `gmail.compose` (drafts, and sending only after approval) and `calendar.events` (changes only after approval). The refresh token is stored encrypted with AES-256-GCM.
 

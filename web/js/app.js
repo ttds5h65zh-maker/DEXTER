@@ -1,4 +1,5 @@
-// App shell: navigation, hash router, notifications, search, shortcuts.
+// App shell: one quiet sidebar (new chat, four places, recent chats, profile
+// menu), a hash router, notifications, search and keyboard shortcuts.
 import { h, clear, btn, toast, errorToast, dialog, fmtAgo, loading, debounce } from './dom.js';
 import { icon } from './icons.js';
 import { api } from './api.js';
@@ -8,25 +9,25 @@ import * as chat from './views/chat.js';
 import * as today from './views/today.js';
 import * as tasks from './views/tasks.js';
 import * as projects from './views/projects.js';
-import * as memory from './views/memory.js';
 import * as files from './views/files.js';
 import * as approvals from './views/approvals.js';
 import * as settings from './views/settings.js';
 
 const NAV = [
-  { key: 'chat', label: 'Chat', ic: 'chat', view: chat },
   { key: 'today', label: 'Today', ic: 'today', view: today },
   { key: 'tasks', label: 'Tasks', ic: 'tasks', view: tasks },
   { key: 'projects', label: 'Courses', ic: 'projects', view: projects },
-  { key: 'memory', label: 'Memory', ic: 'memory', view: memory },
   { key: 'files', label: 'Files', ic: 'files', view: files },
-  { key: 'approvals', label: 'Approvals', ic: 'approvals', view: approvals },
-  { key: 'settings', label: 'Settings', ic: 'settings', view: settings },
 ];
+const VIEWS = { chat, today, tasks, projects, files, approvals, settings };
+const TITLES = { chat: 'Chat', today: 'Today', tasks: 'Tasks', projects: 'Courses', files: 'Files', approvals: 'Approvals', settings: 'Settings' };
+
+export const assistantName = () => state.boot?.profile.assistant_name || 'Dexter Almana';
 
 const root = document.getElementById('app');
-let viewEl; let titleEl; let shell; let cleanup = null; let currentKey = null;
+let viewEl; let shell; let mobileTitle; let cleanup = null; let currentKey = null; let currentParams = [];
 const navLinks = new Map();
+let recentsEl; let attentionEl;
 
 export function navigate(hash) {
   if (location.hash === hash) route();
@@ -35,97 +36,101 @@ export function navigate(hash) {
 
 function parseRoute() {
   const raw = location.hash.replace(/^#\/?/, '');
-  const [path, qs] = raw.split('?');
-  const segs = path.split('/').filter(Boolean).map(decodeURIComponent);
-  return { key: segs[0] || 'today', params: segs.slice(1), query: new URLSearchParams(qs || '') };
+  const [p, qs] = raw.split('?');
+  const segs = p.split('/').filter(Boolean).map(decodeURIComponent);
+  let key = segs[0] || 'chat';
+  let params = segs.slice(1);
+  if (key === 'memory') { key = 'settings'; params = ['memory']; }
+  if (!VIEWS[key]) key = 'chat';
+  return { key, params, query: new URLSearchParams(qs || '') };
+}
+
+function setTitle(t) {
+  document.title = `${t} · ${assistantName()}`;
+  if (mobileTitle) mobileTitle.textContent = t;
 }
 
 function route() {
   const { key, params, query } = parseRoute();
-  const item = NAV.find((n) => n.key === key) || NAV[1];
   for (const [k, a] of navLinks) {
-    a.classList.toggle('active', k === item.key);
-    if (k === item.key) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    const on = k === key;
+    a.classList.toggle('active', on);
+    if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   }
   shell?.classList.remove('nav-open');
   if (typeof cleanup === 'function') { try { cleanup(); } catch (e) { console.error(e); } }
   cleanup = null;
-  currentKey = item.key;
-  titleEl.textContent = item.label;
-  document.title = `${item.label} · Dexter`;
+  currentKey = key; currentParams = params;
+  setTitle(key === 'chat' ? assistantName() : TITLES[key]);
   clear(viewEl);
+  highlightRecent();
   try {
-    cleanup = item.view.mount(viewEl, { params, query, navigate, setTitle: (t) => { titleEl.textContent = t; document.title = `${t} · Dexter`; } });
+    cleanup = VIEWS[key].mount(viewEl, { params, query, navigate, setTitle });
   } catch (err) {
     console.error(err);
     viewEl.append(h('div', { class: 'page' }, h('div', { class: 'banner danger' }, icon('alert'), h('div', {}, `This page failed to load: ${err.message}`))));
   }
 }
 
-function countBadge(n, muted = false) {
-  return n ? h('span', { class: `count${muted ? ' muted' : ''}` }, String(n)) : null;
-}
+// ------------------------------------------------------------------ menus
+let openMenuEl = null;
+function closeMenu() { openMenuEl?.remove(); openMenuEl = null; document.removeEventListener('mousedown', outside, true); document.removeEventListener('keydown', escClose); }
+function outside(e) { if (openMenuEl && !openMenuEl.contains(e.target)) closeMenu(); }
+function escClose(e) { if (e.key === 'Escape') closeMenu(); }
 
-function renderNav(nav) {
-  clear(nav);
-  for (const item of NAV) {
-    const a = h('a', { href: `#/${item.key}`, title: item.label }, icon(item.ic, 18), h('span', {}, item.label));
-    if (item.key === 'approvals') { const b = countBadge(state.counts.approvals); if (b) a.append(b); }
-    if (item.key === 'today') { const n = (state.counts.handoffs || 0) + (state.counts.attention_tasks || 0); const b = countBadge(n, true); if (b) a.append(b); }
-    navLinks.set(item.key, a);
-    nav.append(a);
+export function openMenu(anchor, items, { above = false, align = 'left' } = {}) {
+  closeMenu();
+  const menu = h('div', { class: 'menu', role: 'menu' });
+  for (const it of items) {
+    if (it === '-') { menu.append(h('div', { class: 'sep' })); continue; }
+    if (it.info) { menu.append(h('div', { class: 'tiny muted', style: { padding: '4px 10px' } }, it.info)); continue; }
+    menu.append(h('button', { type: 'button', role: 'menuitem', onclick: () => { closeMenu(); it.onClick(); } }, it.ic ? icon(it.ic, 16) : null, it.label, it.hint ? h('span', { class: 'hint' }, it.hint) : null));
   }
-  const { key } = parseRoute();
-  navLinks.get(key)?.classList.add('active');
+  document.body.append(menu);
+  const r = anchor.getBoundingClientRect();
+  const mw = menu.offsetWidth; const mh = menu.offsetHeight;
+  let left = align === 'right' ? r.right - mw : r.left;
+  left = Math.max(8, Math.min(left, window.innerWidth - mw - 8));
+  const top = above ? Math.max(8, r.top - mh - 6) : Math.min(r.bottom + 6, window.innerHeight - mh - 8);
+  menu.style.left = `${left}px`; menu.style.top = `${top}px`;
+  openMenuEl = menu;
+  setTimeout(() => { document.addEventListener('mousedown', outside, true); document.addEventListener('keydown', escClose); menu.querySelector('button')?.focus(); }, 0);
 }
 
-function connectionFoot() {
-  const foot = h('div', { class: 'sidebar-foot' });
-  const draw = () => {
-    clear(foot);
-    const b = state.boot;
-    const i = b?.integrations;
-    foot.append(
-      h('div', { class: 'conn' }, h('span', { class: `dot ${state.connected ? 'ok' : 'bad'}` }), state.connected ? 'Live updates on' : 'Reconnecting…'),
-      h('div', { class: 'conn' }, h('span', { class: `dot ${i?.anthropic.configured ? 'ok' : 'warn'}` }), i?.anthropic.configured ? 'Claude connected' : 'Claude not connected'),
-      h('div', { class: 'conn' }, h('span', { class: `dot ${i?.google.connected ? 'ok' : 'warn'}` }), i?.google.connected ? 'Google connected' : 'Google not connected'),
-      h('div', { class: 'tiny' }, b ? `Times in ${b.profile.timezone}` : ''),
-    );
-  };
-  on('connection', draw); on('boot', draw); draw();
-  return foot;
+// ------------------------------------------------------------------ theme
+function applyTheme(t) {
+  if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+  else delete document.documentElement.dataset.theme;
+  try { localStorage.setItem('dexter-theme', t); } catch { /* private mode */ }
 }
+try { applyTheme(localStorage.getItem('dexter-theme') || 'system'); } catch { /* ignore */ }
 
-// ---------------------------------------------------------------- notifications
-let popover = null;
-async function toggleNotifications(anchor) {
-  if (popover) { popover.remove(); popover = null; return; }
-  popover = h('div', { class: 'card popover', role: 'dialog', 'aria-label': 'Notifications' }, loading());
-  anchor.parentElement.append(popover);
-  const close = (e) => { if (popover && !popover.contains(e.target) && !anchor.contains(e.target)) { popover.remove(); popover = null; document.removeEventListener('mousedown', close); } };
-  document.addEventListener('mousedown', close);
+// ------------------------------------------------------------------ notifications
+async function showNotifications(anchor) {
+  closeMenu();
+  const pop = h('div', { class: 'popover', role: 'dialog', 'aria-label': 'Notifications' }, loading());
+  document.body.append(pop);
+  const r = anchor.getBoundingClientRect();
+  pop.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - pop.offsetWidth - 8))}px`;
+  pop.style.top = `${r.bottom + 6}px`;
+  openMenuEl = pop;
+  setTimeout(() => { document.addEventListener('mousedown', outside, true); document.addEventListener('keydown', escClose); }, 0);
   try {
     const { notifications } = await api.get('/api/notifications');
-    if (!popover) return;
-    clear(popover);
-    popover.append(h('div', { class: 'card-head' }, h('h2', {}, 'Notifications'), btn('Mark all read', async () => { await api.post('/api/notifications/read-all'); popover?.remove(); popover = null; }, { kind: 'ghost', size: 'sm' })));
-    if (!notifications.length) popover.append(h('div', { class: 'empty' }, 'No notifications yet. Reminders, briefings, monitor alerts and approval requests appear here.'));
+    if (openMenuEl !== pop) return;
+    clear(pop);
+    pop.append(h('div', { class: 'card-head' }, h('h2', {}, 'Notifications'), notifications.some((n) => !n.read_at) ? btn('Mark all read', async () => { await api.post('/api/notifications/read-all'); closeMenu(); }, { kind: 'ghost', size: 'sm' }) : null));
+    if (!notifications.length) pop.append(h('div', { class: 'empty' }, 'Reminders, briefings and alerts will appear here.'));
     for (const n of notifications.slice(0, 40)) {
-      popover.append(h('div', { class: `notif${n.read_at ? '' : ' unread'}`, tabindex: '0', role: 'button', onclick: async () => {
+      pop.append(h('div', { class: `notif${n.read_at ? '' : ' unread'}`, tabindex: '0', role: 'button', onclick: async () => {
         await api.post(`/api/notifications/${n.id}/read`).catch(() => {});
-        popover?.remove(); popover = null;
-        if (n.level === 'briefing') showBriefing(n);
+        closeMenu();
+        if (n.level === 'briefing') dialog({ title: n.title, body: h('div', { class: 'prose' }, renderMarkdown(n.body || '')), wide: true });
         else if (n.link) navigate(n.link);
       } },
-      icon(n.level === 'reminder' ? 'clock' : n.level === 'briefing' ? 'today' : n.level === 'error' ? 'alert' : n.level === 'attention' ? 'bell' : 'sparkle', 16),
-      h('div', { class: 'grow' }, h('div', { class: 't' }, n.title), n.body ? h('div', { class: 'b' }, n.body.replace(/[#*_`]/g, '').slice(0, 220)) : null,
-        h('div', { class: 'tiny muted' }, fmtAgo(n.created_at), n.delivery?.push ? ` · push ${n.delivery.push}` : ''))));
+      h('div', { class: 'grow' }, h('div', { class: 't' }, n.title), n.body ? h('div', { class: 'b' }, n.body.replace(/[#*_`]/g, '').slice(0, 200)) : null, h('div', { class: 'tiny muted' }, fmtAgo(n.created_at)))));
     }
   } catch (err) { errorToast(err); }
-}
-
-function showBriefing(n) {
-  dialog({ title: n.title, body: renderMarkdown(n.body || ''), wide: true });
 }
 
 function desktopNotify(n) {
@@ -136,9 +141,9 @@ function desktopNotify(n) {
   } catch { /* unsupported */ }
 }
 
-// ---------------------------------------------------------------- search
+// ------------------------------------------------------------------ search
 function openSearch() {
-  const input = h('input', { class: 'input', type: 'search', placeholder: 'Search tasks, chats, memories, files…', 'aria-label': 'Search' });
+  const input = h('input', { class: 'input', type: 'search', placeholder: 'Search chats, tasks, memories, files…', 'aria-label': 'Search' });
   const results = h('div', { class: 'search-results' });
   const run = debounce(async () => {
     const q = input.value.trim();
@@ -147,10 +152,10 @@ function openSearch() {
     try {
       const r = await api.get(`/api/search?q=${encodeURIComponent(q)}`);
       const group = (title, items, map) => { if (!items?.length) return; results.append(h('div', { class: 'group' }, title)); for (const it of items) results.append(map(it)); };
-      const link = (href, ic, text, sub) => h('a', { href, onclick: () => d.close() }, icon(ic, 16), h('span', { class: 'ellipsis' }, text), sub ? h('span', { class: 'muted tiny' }, sub) : null);
-      group('Tasks', r.tasks, (t) => link(`#/tasks/${t.id}`, 'tasks', t.title, t.status.replace('_', ' ')));
-      group('Conversations', r.conversations, (c) => link(`#/chat/${c.id}`, 'chat', c.title));
-      group('Memories', r.memories, (m) => link('#/memory', 'memory', m.content));
+      const link = (href, ic, text) => h('a', { href, onclick: () => d.close() }, icon(ic, 16), h('span', { class: 'ellipsis' }, text));
+      group('Chats', r.conversations, (c) => link(`#/chat/${c.id}`, 'chat', c.title));
+      group('Tasks', r.tasks, (t) => link(`#/tasks/${t.id}`, 'tasks', t.title));
+      group('Memories', r.memories, (m) => link('#/settings/memory', 'memory', m.content));
       group('Files', r.files, (f) => link(`#/files/${f.id}`, 'files', f.name));
       group('Documents', r.documents, (x) => link(`#/files/documents/${x.id}`, 'doc', x.title));
       if (!results.childElementCount) results.append(h('div', { class: 'empty' }, 'No matches.'));
@@ -164,85 +169,154 @@ function openSearch() {
 function shortcutsHelp() {
   dialog({ title: 'Keyboard shortcuts', body: h('dl', { class: 'kv' },
     h('dt', {}, h('kbd', {}, 'Ctrl'), ' ', h('kbd', {}, 'K')), h('dd', {}, 'Search'),
-    h('dt', {}, h('kbd', {}, 'Alt'), ' + ', h('kbd', {}, '1–8')), h('dd', {}, 'Go to Chat, Today, Tasks, Courses, Memory, Files, Approvals, Settings'),
-    h('dt', {}, h('kbd', {}, 'Alt'), ' ', h('kbd', {}, 'N')), h('dd', {}, 'New conversation'),
+    h('dt', {}, h('kbd', {}, 'Alt'), ' ', h('kbd', {}, 'N')), h('dd', {}, 'New chat'),
+    h('dt', {}, h('kbd', {}, 'Alt'), ' ', h('kbd', {}, '1–4')), h('dd', {}, 'Today, Tasks, Courses, Files'),
     h('dt', {}, h('kbd', {}, '/')), h('dd', {}, 'Focus the message box'),
-    h('dt', {}, h('kbd', {}, 'Enter')), h('dd', {}, 'Send (Shift+Enter for a new line)'),
-    h('dt', {}, h('kbd', {}, 'Esc')), h('dd', {}, 'Close dialogs and panels'),
-    h('dt', {}, h('kbd', {}, '?')), h('dd', {}, 'This help')) });
+    h('dt', {}, h('kbd', {}, 'Esc')), h('dd', {}, 'Close menus and dialogs')) });
 }
 
 function onKey(e) {
-  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName);
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openSearch(); return; }
-  if (e.altKey && /^[1-8]$/.test(e.key)) { e.preventDefault(); navigate(`#/${NAV[Number(e.key) - 1].key}`); return; }
-  if (e.altKey && e.key.toLowerCase() === 'n') { e.preventDefault(); navigate('#/chat/new'); return; }
+  if (e.altKey && /^[1-4]$/.test(e.key)) { e.preventDefault(); navigate(`#/${NAV[Number(e.key) - 1].key}`); return; }
+  if (e.altKey && e.key.toLowerCase() === 'n') { e.preventDefault(); navigate('#/chat'); return; }
   if (typing) return;
   if (e.key === '/' && currentKey === 'chat') { e.preventDefault(); document.querySelector('.composer textarea')?.focus(); }
   if (e.key === '?') shortcutsHelp();
 }
 
-// ---------------------------------------------------------------- login
+// ------------------------------------------------------------------ sidebar
+function highlightRecent() {
+  if (!recentsEl) return;
+  for (const a of recentsEl.querySelectorAll('a')) a.classList.toggle('active', currentKey === 'chat' && a.dataset.id === currentParams[0]);
+}
+
+async function loadRecents() {
+  if (!recentsEl) return;
+  let convs = [];
+  try { convs = (await api.get('/api/conversations')).conversations; } catch { return; }
+  clear(recentsEl);
+  if (!convs.length) { recentsEl.append(h('div', { class: 'none' }, 'Your chats will appear here.')); return; }
+  for (const c of convs.slice(0, 40)) {
+    const live = ['running', 'awaiting_approval', 'blocked'].includes(c.last_run_status);
+    recentsEl.append(h('a', { href: `#/chat/${c.id}`, dataset: { id: c.id }, title: c.title },
+      live ? h('span', { class: `dot ${c.last_run_status === 'running' ? 'live' : 'warn'}`, title: c.last_run_status.replace('_', ' ') }) : null,
+      h('span', {}, c.title)));
+  }
+  highlightRecent();
+}
+const loadRecentsSoon = debounce(loadRecents, 300);
+
+function drawAttention() {
+  if (!attentionEl) return;
+  clear(attentionEl);
+  const a = state.counts.approvals || 0;
+  const hd = state.counts.handoffs || 0;
+  if (!a && !hd) { attentionEl.hidden = true; return; }
+  attentionEl.hidden = false;
+  const parts = [];
+  if (a) parts.push(`${a} approval${a > 1 ? 's' : ''} waiting`);
+  if (hd) parts.push(`${hd} sign-in${hd > 1 ? 's' : ''} needed`);
+  attentionEl.href = a ? '#/approvals' : '#/today';
+  attentionEl.append(h('span', { class: 'pulse' }), parts.join(' · '));
+}
+
+function profileMenu(anchor) {
+  const b = state.boot;
+  const i = b.integrations;
+  const items = [
+    { info: `${i.anthropic.configured ? '● Claude connected' : '○ Claude not connected'} · ${i.google.connected ? '● Google connected' : '○ Google not connected'}` },
+    '-',
+    { label: 'Settings', ic: 'settings', onClick: () => navigate('#/settings') },
+    { label: 'Memory', ic: 'memory', onClick: () => navigate('#/settings/memory') },
+    { label: 'Reminders & routines', ic: 'clock', onClick: () => navigate('#/tasks/schedules') },
+    { label: 'Approvals', ic: 'approvals', onClick: () => navigate('#/approvals') },
+    '-',
+    { label: 'Light', ic: 'sun', onClick: () => applyTheme('light') },
+    { label: 'Dark', ic: 'moon', onClick: () => applyTheme('dark') },
+    { label: 'Match system', ic: 'monitor', onClick: () => applyTheme('system') },
+    '-',
+    { label: 'Keyboard shortcuts', ic: 'bolt', hint: '?', onClick: shortcutsHelp },
+  ];
+  if (state.authRequired) items.push({ label: 'Sign out', ic: 'logout', onClick: async () => { await api.post('/api/auth/logout').catch(() => {}); location.reload(); } });
+  openMenu(anchor, items, { above: true });
+}
+
+// ------------------------------------------------------------------ login
 async function loginScreen() {
   clear(root);
   const pw = h('input', { class: 'input', type: 'password', autocomplete: 'current-password', 'aria-label': 'Password' });
   const err = h('div', { class: 'small', style: { color: 'var(--danger)', minHeight: '20px', marginTop: '6px' } });
-  const form = h('form', { class: 'card card-pad', onsubmit: async (e) => {
+  root.append(h('div', { class: 'login' }, h('form', { class: 'card card-pad', onsubmit: async (e) => {
     e.preventDefault();
     try { await api.post('/api/auth/login', { password: pw.value }); location.reload(); } catch (x) { err.textContent = x.message; }
-  } }, h('div', { class: 'brand', style: { padding: '0 0 14px' } }, h('div', { class: 'brand-mark' }, 'D'), h('div', {}, h('div', { class: 'brand-name' }, 'Dexter'), h('div', { class: 'brand-sub' }, 'Sign in to continue'))),
-  h('div', { class: 'field' }, h('label', {}, 'Password'), pw), err, btn('Sign in', null, { kind: 'primary', type: 'submit' }));
-  root.append(h('div', { class: 'login' }, form));
+  } }, h('div', { style: { display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '18px' } }, h('div', { class: 'mark lg' }, 'D'), h('h1', { style: { fontSize: '24px' } }, 'Dexter Almana')),
+  h('div', { class: 'field' }, h('label', {}, 'Password'), pw), err, btn('Sign in', null, { kind: 'primary', type: 'submit' }))));
   pw.focus();
 }
 
-// ---------------------------------------------------------------- boot
+// ------------------------------------------------------------------ boot
 async function boot() {
   try {
     const auth = await api.get('/api/auth/status');
+    state.authRequired = auth.required;
     if (auth.required && !auth.authenticated) return loginScreen();
     await loadBoot();
   } catch (err) {
     clear(root);
-    root.append(h('div', { class: 'page narrow' }, h('div', { class: 'banner danger' }, icon('alert'), h('div', {}, h('b', {}, 'Dexter could not start. '), err.message, h('div', { style: { marginTop: '8px' } }, btn('Try again', () => location.reload()))))));
+    root.append(h('div', { class: 'page narrow' }, h('div', { class: 'banner danger' }, icon('alert'), h('div', {}, h('b', {}, 'Dexter Almana could not start. '), err.message, h('div', { style: { marginTop: '8px' } }, btn('Try again', () => location.reload()))))));
     return;
   }
   window.addEventListener('dexter:unauthenticated', () => loginScreen());
   clear(root);
-  const nav = h('nav', { class: 'nav', 'aria-label': 'Main' });
-  const bell = btn('', (e) => toggleNotifications(e.currentTarget), { kind: 'ghost', ic: 'bell', title: 'Notifications' });
-  const bellCount = h('span', { class: 'tiny', style: { fontWeight: '650', color: 'var(--accent)' } });
-  titleEl = h('div', { class: 'title' });
+  const b = state.boot;
+  const bellBadge = h('span', { class: 'badge', hidden: true });
+  const bell = h('button', { class: 'icon-btn', type: 'button', title: 'Notifications', 'aria-label': 'Notifications', onclick: (e) => showNotifications(e.currentTarget) }, icon('bell', 17), bellBadge);
+  const nav = h('nav', { class: 'side-nav', 'aria-label': 'Main' });
+  for (const item of NAV) {
+    const a = h('a', { href: `#/${item.key}` }, icon(item.ic, 17), item.label);
+    navLinks.set(item.key, a);
+    nav.append(a);
+  }
+  attentionEl = h('a', { class: 'attention', hidden: true });
+  recentsEl = h('nav', { class: 'recents', 'aria-label': 'Recent chats' });
+  const initials = (b.profile.name || 'S').trim().slice(0, 1).toUpperCase();
+  const me = h('button', { class: 'me', type: 'button', 'aria-label': 'Profile and settings', onclick: (e) => profileMenu(e.currentTarget) },
+    h('span', { class: 'avatar' }, initials), h('span', { class: 'who' }, h('b', {}, b.profile.name), h('span', {}, b.profile.university.replace(/\s*\(.*\)/, ''))), icon('more', 16));
+  mobileTitle = h('div', { class: 't' });
   viewEl = h('main', { class: 'view', id: 'view', tabindex: '-1' });
   shell = h('div', { class: 'shell' },
     h('aside', { class: 'sidebar' },
-      h('div', { class: 'brand' }, h('div', { class: 'brand-mark' }, 'D'), h('div', {}, h('div', { class: 'brand-name' }, 'Dexter'), h('div', { class: 'brand-sub' }, `for ${state.boot.profile.name}`))),
-      nav, connectionFoot()),
+      h('div', { class: 'side-head' },
+        h('a', { class: 'side-brand', href: '#/chat', title: 'New chat' }, h('span', { class: 'mark' }, 'D'), h('span', { class: 'name' }, assistantName())),
+        h('button', { class: 'icon-btn', type: 'button', title: 'Search (Ctrl+K)', 'aria-label': 'Search', onclick: openSearch }, icon('search', 17)),
+        bell),
+      h('a', { class: 'new-chat', href: '#/chat' }, h('span', { class: 'plus' }, icon('plus', 15)), 'New chat'),
+      nav, attentionEl,
+      h('div', { class: 'side-label' }, 'Recents'), recentsEl,
+      me),
     h('div', { class: 'main' },
-      h('header', { class: 'topbar' },
-        btn('', () => shell.classList.toggle('nav-open'), { kind: 'ghost', ic: 'menu', title: 'Menu' }),
-        titleEl, h('div', { class: 'spacer' }),
-        btn('', openSearch, { kind: 'ghost', ic: 'search', title: 'Search (Ctrl+K)' }),
-        h('div', { style: { position: 'relative', display: 'flex', alignItems: 'center' } }, bell, bellCount)),
+      h('header', { class: 'mobile-bar' },
+        h('button', { class: 'icon-btn', type: 'button', title: 'Menu', 'aria-label': 'Menu', onclick: () => shell.classList.toggle('nav-open') }, icon('menu', 19)),
+        mobileTitle,
+        h('a', { class: 'icon-btn', href: '#/chat', title: 'New chat', 'aria-label': 'New chat' }, icon('compose', 18))),
       viewEl));
-  shell.querySelector('.topbar .btn')?.classList.add('menu-btn');
   root.append(shell);
-  renderNav(nav);
-  const drawCounts = () => {
-    renderNav(nav);
-    bellCount.textContent = state.counts.notifications_unread ? String(state.counts.notifications_unread) : '';
-  };
-  on('counts', drawCounts);
-  drawCounts();
+
+  on('counts', () => { drawAttention(); bellBadge.hidden = !state.counts.notifications_unread; });
+  on('boot', () => { const n = shell.querySelector('.side-brand .name'); if (n) n.textContent = assistantName(); });
   on('notification.created', (d) => {
     const n = d.notification;
-    if (n.level !== 'info') toast(h('span', {}, h('b', {}, n.title), n.body && n.level !== 'briefing' ? ` — ${n.body.slice(0, 120)}` : ''), { timeout: 6000 });
+    if (n.level !== 'info' && n.source_type !== 'approval') toast(h('span', {}, h('b', {}, n.title), n.body && n.level !== 'briefing' ? ` — ${n.body.slice(0, 120)}` : ''), { timeout: 6000 });
     if (d.desktop) desktopNotify(n);
   });
+  for (const t of ['conversation.updated', 'conversation.deleted', 'conversation.message', 'run.updated']) on(t, loadRecentsSoon);
   window.addEventListener('hashchange', route);
   document.addEventListener('keydown', onKey);
   connectEvents();
-  if (!location.hash) location.replace('#/chat');
+  drawAttention();
+  bellBadge.hidden = !state.counts.notifications_unread;
+  loadRecents();
   route();
   refreshCounts();
 }

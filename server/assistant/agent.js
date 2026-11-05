@@ -94,7 +94,7 @@ export function createAgent(app) {
     syncTask(run, status, error);
     if (status === 'failed' || status === 'interrupted') {
       app.notifications.notify({
-        title: status === 'failed' ? 'Dexter hit a problem' : 'Work was interrupted', body: error || '', level: 'error', source_type: 'run', source_id: runId,
+        title: status === 'failed' ? `${app.settings.get('profile').assistant_name} hit a problem` : 'Work was interrupted', body: error || '', level: 'error', source_type: 'run', source_id: runId,
         link: `#/chat/${run.conversation_id}`, dedupe_key: `run:${runId}:${status}`, push: false,
       }).catch(() => {});
     }
@@ -479,7 +479,7 @@ export function createAgent(app) {
     const clean = String(text || '').trim();
     if (!clean && !file_ids.length) throw badRequest('Write a message or attach a file');
     const active = db.get("SELECT id FROM runs WHERE conversation_id = ? AND status = 'running'", conversationId);
-    if (active) throw conflict('Dexter is still working on the previous message. Wait for it to finish or press Stop.', 'run_active');
+    if (active) throw conflict(`${app.settings.get('profile').assistant_name} is still working on the previous message. Wait for it to finish or press Stop.`, 'run_active');
     if (isCommand(clean)) return runCommand(app, conv, clean);
     if (!modelReady()) {
       throw new HttpError(409, 'Claude is not connected yet. Add ANTHROPIC_API_KEY to the server .env and restart Dexter. Until then you can use commands like /task, /remind, /remember and /brief.', 'model_not_configured');

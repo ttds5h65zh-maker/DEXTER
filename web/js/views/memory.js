@@ -1,4 +1,4 @@
-// Memory: inspect, edit, pin and delete what Dexter remembers, with source and last update.
+// Memory: inspect, edit, pin and delete what Dexter Almana remembers, with source and last update.
 import { h, clear, btn, fmtAgo, fmtDateTime, errorToast, toast, confirmDialog, empty, loading, debounce } from '../dom.js';
 import { icon } from '../icons.js';
 import { api } from '../api.js';
@@ -6,20 +6,20 @@ import { on } from '../store.js';
 
 const KINDS = ['preference', 'project', 'course', 'person', 'fact'];
 
-export function mount(container) {
-  const page = h('div', { class: 'page narrow' });
-  container.append(page);
+export function mount(container, _ctx = {}, { embedded = false } = {}) {
+  const page = embedded ? container : h('div', { class: 'page narrow' });
+  if (!embedded) container.append(page);
   let kind = '';
   let q = '';
   let editing = null;
   const listEl = h('div', { class: 'card' });
 
-  const content = h('textarea', { class: 'textarea', rows: '2', placeholder: 'Something Dexter should remember, e.g. “I have Arabic 101 on Mon/Wed 10:00–11:15 in EB2”', 'aria-label': 'New memory' });
+  const content = h('textarea', { class: 'textarea', rows: '2', placeholder: 'Something Dexter Almana should remember, e.g. “I have Arabic 101 on Mon/Wed 10:00–11:15 in EB2”', 'aria-label': 'New memory' });
   const kindSel = h('select', { class: 'select', style: { width: '160px' }, 'aria-label': 'Kind' }, KINDS.map((k) => h('option', { value: k }, k)));
   kindSel.value = 'preference';
   const pin = h('input', { type: 'checkbox' });
   page.append(
-    h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, 'Memory'), h('p', {}, 'Preferences and context Dexter uses in every conversation. Each memory shows where it came from and when it last changed.'))),
+    embedded ? h('p', { class: 'muted', style: { marginTop: 0 } }, 'What Dexter Almana remembers about you. Each memory shows where it came from and when it last changed.') : h('div', { class: 'page-head' }, h('div', {}, h('h1', {}, 'Memory'), h('p', {}, 'What Dexter Almana remembers about you. Each memory shows where it came from and when it last changed.'))),
     h('form', { class: 'card card-pad', style: { marginBottom: '16px' }, onsubmit: async (e) => {
       e.preventDefault();
       if (!content.value.trim()) return;
@@ -39,7 +39,7 @@ export function mount(container) {
     const seg = h('div', { class: 'segmented', role: 'group', 'aria-label': 'Filter by kind' }, ['', ...KINDS].map((k) => h('button', { type: 'button', class: k === kind ? 'on' : '', 'aria-pressed': String(k === kind), onclick: () => { kind = k; render(); } }, k || 'All')));
     listEl.append(h('div', { class: 'card-head', style: { flexWrap: 'wrap' } }, seg,
       h('input', { class: 'input', type: 'search', placeholder: 'Search memories', value: q, style: { maxWidth: '220px' }, 'aria-label': 'Search memories', oninput: debounce((e) => { q = e.target.value; render(); }, 250) })));
-    if (!memories.length) { listEl.append(empty(q || kind ? 'No matching memories' : 'Nothing remembered yet', q || kind ? null : 'Tell Dexter about your schedule, preferences and courses — in chat or above.')); return; }
+    if (!memories.length) { listEl.append(empty(q || kind ? 'No matching memories' : 'Nothing remembered yet', q || kind ? null : 'Tell Dexter Almana about your schedule, preferences and courses — in chat or above.')); return; }
     for (const m of memories) listEl.append(item(m));
   }
 

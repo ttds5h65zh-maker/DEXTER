@@ -45,31 +45,36 @@ try {
     { content: [text('Done. The task is **planned** and due tomorrow; the outdated memory was deleted after your approval.\n\n- Task: Submit MIS 320 analytics report\n- Memory: morning study blocks')], stop_reason: 'end_turn' },
   );
 
+  step('chat: new chat greets Sultan and the assistant is called Dexter Almana');
+  await page.goto(`${d.base}/#/chat`);
+  await page.waitForSelector('.hero h1:has-text("Sultan")');
+  await page.waitForSelector('.side-brand:has-text("Dexter Almana")');
+  await shot('00-new-chat');
+
   step('chat: send a message and watch tool activity');
-  await page.goto(`${d.base}/#/chat/new`);
   await page.locator('.composer textarea').fill('I now prefer studying in the morning. Also track my MIS 320 report, due tomorrow.');
   await page.keyboard.press('Enter');
-  await page.waitForSelector('.tool.attention', { timeout: 15000 });
-  await page.waitForSelector('text=Awaiting approval');
-  await page.waitForSelector('text=Delete a memory');
+  await page.waitForSelector('.approval:has-text("Delete a memory")', { timeout: 15000 });
+  await page.waitForSelector('text=Nothing happens until you approve.');
   await shot('01-chat-approval');
   assert.equal(d.app.memory.get(oldMem.id) !== null, true, 'memory not deleted before approval');
 
   step('chat: approve inline');
-  await page.locator('.tool.attention button:has-text("Approve")').click();
+  await page.locator('.approval button:has-text("Approve")').click();
   await page.waitForSelector('text=the outdated memory was deleted after your approval', { timeout: 15000 });
   await waitFor(() => d.app.memory.get(oldMem.id) === null, { label: 'memory deleted' });
-  await page.waitForFunction(() => !document.querySelector('.runbar .spinner'));
+  await page.waitForSelector('.signature:has-text("Dexter Almana")');
   await shot('02-chat-done');
-  const toolStates = await page.locator('.tool .status').allInnerTexts();
-  assert.ok(toolStates.filter((s) => s.trim() === 'done').length >= 3, `tool states: ${toolStates}`);
+  const done = await page.locator('.step-head .st.ok').count();
+  assert.ok(done >= 3, `completed steps: ${done}`);
 
   step('tasks: the task is persisted with its timeline');
   await page.goto(`${d.base}/#/tasks`);
   await page.waitForSelector('text=Submit MIS 320 analytics report');
   await page.locator('.task-row:has-text("Submit MIS 320 analytics report")').click();
+  await page.locator('summary:has-text("Activity")').click();
   await page.waitForSelector('.timeline li');
-  await page.waitForSelector('text=Created by Dexter from the conversation');
+  await page.waitForSelector('text=Created by Dexter Almana from the conversation');
   await shot('03-tasks');
 
   step('memory: shows source and allows editing');
@@ -85,12 +90,12 @@ try {
 
   step('approvals: history shows the executed action');
   await page.goto(`${d.base}/#/approvals`);
-  await page.waitForSelector('text=done — confirmed');
+  await page.waitForSelector('.status.executed:has-text("done")');
   await shot('05-approvals');
 
   step('schedules: create a reminder from the UI and run it now');
   await page.goto(`${d.base}/#/tasks/schedules`);
-  await page.locator('button:has-text("New schedule")').click();
+  await page.locator('.btn.primary:has-text("New")').click();
   await page.locator('.dialog input').first().fill('Check Banner');
   await page.locator('.dialog input').nth(1).fill('Check Banner registration window');
   const inHour = new Date(Date.now() + 3600e3);
@@ -147,16 +152,18 @@ try {
   const mp = await m.newPage();
   mp.on('pageerror', (e) => errors.push(e.message));
   await mp.goto(`${d.base}/#/today`);
-  await mp.waitForSelector('text=Needs your attention');
+  await mp.waitForSelector('h1:has-text("Sultan")');
   const overflow = await mp.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
   assert.equal(overflow, false, 'no horizontal scroll on mobile');
   if (shots) await mp.screenshot({ path: path.join(shots, '11-mobile-today.png') });
   await mp.locator('button[title="Menu"]').click();
   await mp.waitForSelector('.shell.nav-open');
+  await mp.waitForTimeout(400);
   if (shots) await mp.screenshot({ path: path.join(shots, '12-mobile-nav.png') });
-  await mp.locator('.nav a:has-text("Chat")').click();
-  await mp.waitForSelector('.conv-item');
-  if (shots) await mp.screenshot({ path: path.join(shots, '13-mobile-chat-list.png') });
+  await mp.locator('.recents a').first().click();
+  await mp.waitForSelector('.bubble');
+  await mp.waitForTimeout(400);
+  if (shots) await mp.screenshot({ path: path.join(shots, '13-mobile-chat.png') });
 
   assert.deepEqual(errors, [], `browser errors: ${errors.join('\n')}`);
   console.log('\nE2E passed.');

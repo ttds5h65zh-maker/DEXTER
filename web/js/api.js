@@ -21,7 +21,7 @@ async function request(method, path, body, { raw = false, headers = {} } = {}) {
   try {
     res = await fetch(path, opts);
   } catch {
-    throw new ApiError('Dexter’s server is not reachable. Is it still running?', 0, 'offline');
+    throw new ApiError('Dexter Almana’s server is not reachable. Is it still running?', 0, 'offline');
   }
   if (raw) return res;
   const text = await res.text();

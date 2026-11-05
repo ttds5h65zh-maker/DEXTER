@@ -13,6 +13,7 @@ export const MODEL_OPTIONS = [
 
 export const DEFAULTS = {
   profile: {
+    assistant_name: 'Dexter Almana',
     name: 'Sultan',
     location: 'United Arab Emirates',
     university: 'American University of Sharjah (AUS)',
@@ -74,6 +75,7 @@ export function createSettingsService(app) {
 
   function validate(section, value) {
     if (section === 'profile') {
+      if (!String(value.assistant_name || '').trim() || String(value.assistant_name).length > 40) throw badRequest('The assistant name must be 1–40 characters');
       if (value.timezone && !isValidTimeZone(value.timezone)) throw badRequest(`Unknown timezone "${value.timezone}"`);
     }
     if (section === 'model') {

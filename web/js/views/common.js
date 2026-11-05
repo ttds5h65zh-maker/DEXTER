@@ -23,64 +23,59 @@ export const STATUS_LABELS = { planned: 'Planned', running: 'Running', blocked: 
 
 export function taskStatus(s) { return statusChip(s, STATUS_LABELS[s] || s); }
 
-/** Full approval card: exact action, content, provenance and decision controls. */
-export function approvalCard(a, { onDecided = null, compact = false } = {}) {
+/** Approval card: the exact action and content, where it came from, and the decision. */
+export function approvalCard(a, { onDecided = null } = {}) {
   const p = a.preview || {};
-  const card = h('div', { class: `card approval-card${compact ? '' : ''}`, id: `approval-${a.id}` });
-  const head = h('div', { class: 'card-head' },
-    h('div', { style: { display: 'flex', gap: '10px', alignItems: 'center', minWidth: '0' } }, icon('shield', 18), h('h2', { class: 'ellipsis' }, a.title)),
-    statusChip(a.status === 'pending' ? 'pending' : a.status, a.status === 'pending' ? 'Awaiting approval' : a.status));
-  const body = h('div', { class: 'card-body' });
-  body.append(h('div', { class: 'small muted' }, `Requested ${fmtAgo(a.created_at)}`, a.conversation_id ? [' · ', h('a', { href: `#/chat/${a.conversation_id}` }, 'open conversation')] : null, a.task_id ? [' · ', h('a', { href: `#/tasks/${a.task_id}` }, 'task')] : null));
-  if (a.provenance?.length && a.status === 'pending') {
-    body.append(h('div', { class: 'banner warn', style: { marginTop: '10px' } }, icon('alert'),
-      h('div', { class: 'grow' }, h('b', {}, 'Dexter read external content during this work. '),
-        'Check that this action is what you want — instructions inside emails, pages or files are never treated as your permission. Sources: ',
-        a.provenance.map((s) => `${s.source}: ${s.label}`).join('; '))));
+  const pendingNow = a.status === 'pending';
+  const card = h('div', { class: `approval approval-card${pendingNow ? '' : ' done'}`, id: `approval-${a.id}` });
+  card.append(h('div', { class: 'a-title' }, icon('shield', 17), h('span', { class: 'grow' }, a.title), pendingNow ? null : statusChip(a.status, a.status === 'executed' ? 'done' : a.status)));
+  card.append(h('div', { class: 'a-sub' }, pendingNow ? 'Nothing happens until you approve.' : `Requested ${fmtAgo(a.created_at)}`,
+    a.conversation_id ? [' · ', h('a', { href: `#/chat/${a.conversation_id}` }, 'chat')] : null, a.task_id ? [' · ', h('a', { href: `#/tasks/${a.task_id}` }, 'task')] : null));
+  if (a.provenance?.length && pendingNow) {
+    card.append(h('div', { class: 'banner warn small', style: { marginBottom: '10px' } }, icon('alert', 16),
+      h('div', { class: 'grow' }, 'This was prepared after reading outside content (', a.provenance.map((s) => s.label).join('; '), '). Instructions inside emails, pages or files never count as your permission — check it is what you want.')));
   }
   if (p.fields?.length) {
     const dl = h('dl', { class: 'kv fields' });
     for (const f of p.fields) dl.append(h('dt', {}, f.label), h('dd', {}, f.value));
-    body.append(dl);
+    card.append(dl);
   }
-  if (p.body) body.append(h('div', { class: 'label', style: { marginBottom: '4px' } }, 'Content'), h('pre', { class: 'pre' }, p.body));
-  if (p.screenshot_file_id) body.append(h('img', { class: 'shot', src: `/api/files/${p.screenshot_file_id}/preview`, alt: 'Screenshot of the page this action will affect' }));
-  if (a.status === 'pending') {
-    const note = h('input', { class: 'input', placeholder: 'Optional note (e.g. what to change if you reject)', 'aria-label': 'Note' });
+  if (p.body) card.append(h('pre', { class: 'pre' }, p.body));
+  if (p.screenshot_file_id) card.append(h('img', { class: 'shot', src: `/api/files/${p.screenshot_file_id}/preview`, alt: 'The page this action will affect' }));
+  if (pendingNow) {
+    const note = h('input', { class: 'input', placeholder: 'Add a note (optional)', 'aria-label': 'Note', style: { marginTop: '12px' } });
     let allow = null;
     if (a.grantable && a.grant_scope?.description) {
       allow = h('input', { type: 'checkbox' });
-      body.append(h('label', { class: 'small', style: { display: 'flex', gap: '8px', alignItems: 'center', margin: '12px 0 4px' } }, allow, `Don't ask again: ${a.grant_scope.description}`));
+      card.append(h('label', { class: 'small muted', style: { display: 'flex', gap: '8px', alignItems: 'center', marginTop: '12px' } }, allow, `Don't ask again: ${a.grant_scope.description}`));
     }
     const decide = async (decision) => {
       try {
         const payload = { note: note.value || null };
         if (decision === 'approve' && allow?.checked) payload.always_allow = true;
         await api.post(`/api/approvals/${a.id}/${decision}`, payload);
-        toast(decision === 'approve' ? 'Approved — Dexter is carrying it out. It shows as completed only when the service confirms.' : 'Rejected — nothing was done.');
+        toast(decision === 'approve' ? 'Approved — it shows as done once the service confirms.' : 'Declined — nothing was done.');
         onDecided?.();
       } catch (err) { errorToast(err); }
     };
-    body.append(h('div', { style: { marginTop: '12px' } }, note),
-      h('div', { class: 'btn-row', style: { marginTop: '10px' } },
-        btn('Approve', () => decide('approve'), { kind: 'primary', ic: 'check' }),
-        btn('Reject', () => decide('reject'), { kind: 'danger', ic: 'x' })));
+    card.append(note, h('div', { class: 'btn-row', style: { marginTop: '12px' } },
+      btn('Approve', () => decide('approve'), { kind: 'primary' }),
+      btn('Decline', () => decide('reject'))));
   } else {
     const outcome = [];
     if (a.decision_note) outcome.push(h('div', { class: 'small' }, `Note: ${a.decision_note}`));
-    if (a.result_summary) outcome.push(h('div', { class: 'small' }, `Result: ${a.result_summary}`));
-    if (a.external_ref) outcome.push(h('div', { class: 'small mono' }, `Confirmation: ${a.external_ref}`));
-    if (a.status === 'approved') outcome.push(h('div', { class: 'small muted' }, 'Approved; waiting for the service to confirm.'));
-    if (a.status === 'unknown') outcome.push(h('div', { class: 'banner warn small' }, icon('alert'), 'Dexter stopped while this was executing. Check the service before trying again.'));
-    if (outcome.length) body.append(h('div', { style: { marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '4px' } }, outcome));
+    if (a.result_summary) outcome.push(h('div', { class: 'small' }, a.result_summary));
+    if (a.external_ref) outcome.push(h('div', { class: 'small mono muted' }, `Confirmation ${a.external_ref}`));
+    if (a.status === 'approved') outcome.push(h('div', { class: 'small muted' }, 'Approved — waiting for the service to confirm.'));
+    if (a.status === 'unknown') outcome.push(h('div', { class: 'banner warn small' }, icon('alert'), 'Stopped while this was running. Check the service before trying again.'));
+    if (outcome.length) card.append(h('div', { style: { marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' } }, outcome));
   }
-  card.append(head, body);
   return card;
 }
 
 export function handoffCard(hd, { onDone = null } = {}) {
-  return h('div', { class: 'banner warn' }, icon('user'),
-    h('div', { class: 'grow' }, h('b', {}, hd.title), h('div', { class: 'small', style: { margin: '4px 0 8px' } }, hd.message),
+  return h('div', { class: 'approval' }, h('div', { class: 'a-title' }, icon('user', 17), hd.title), h('div', { class: 'a-sub' }, 'Your turn'),
+    h('div', {}, h('div', { class: 'small', style: { margin: '0 0 8px' } }, hd.message),
       hd.url ? h('div', { class: 'tiny mono ellipsis' }, hd.url) : null,
       hd.screenshot_file_id ? h('img', { class: 'shot', src: `/api/files/${hd.screenshot_file_id}/preview`, alt: 'Screenshot', style: { maxWidth: '100%', marginTop: '8px', borderRadius: '6px' } }) : null,
       h('div', { class: 'btn-row', style: { marginTop: '8px' } },
