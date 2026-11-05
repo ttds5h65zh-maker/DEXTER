@@ -1,0 +1,18 @@
+{
+  "name": "dexter",
+  "version": "0.1.0",
+  "description": "Dexter — Sultan's personal AI assistant: chat, tasks, memory, files, approvals, schedules and integrations.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch-path=server server/index.js",
+    "test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 \"test/*.test.js\"",
+    "test:e2e": "node --disable-warning=ExperimentalWarning scripts/e2e.js",
+    "check": "node --disable-warning=ExperimentalWarning scripts/check.js"
+  },
+  "license": "UNLICENSED"
+}
