@@ -1,0 +1,30 @@
+{
+  "name": "dexter-payments",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Dexter Payments — a private financial dashboard for an owner and their accountant",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test test/e2e.test.js",
+    "demo:files": "node scripts/make-demo-files.js"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^1.1.1",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "express": "^5.3.0",
+    "htm": "^3.1.1",
+    "nodemailer": "^10.5.0",
+    "pdfjs-dist": "^6.5.438",
+    "preact": "^11.2.0",
+    "read-excel-file": "^9.3.15",
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "smtp-server": "^3.21.4"
+  }
+}
