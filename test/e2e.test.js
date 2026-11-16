@@ -137,6 +137,19 @@ test('paper file: scanned bill is OCR’d, reviewed, and confirms the recurring 
   const anon = await fetch(`http://127.0.0.1:${port}/api/documents/${d.documents[0].id}/file`); assert.equal(anon.status, 401);
 });
 
+test('paper file: PDF with a text layer is read directly and previewed as page images', async () => {
+  const up = ok(await owner.upload('/api/imports/document', 'contractor.pdf', sample('2-contractor-invoice.pdf')));
+  const f = up.import.fields;
+  assert.equal(up.import.document.extract_method, 'pdf-text');
+  assert.deepEqual([f.supplier.value, f.reference.value, f.amount.value], ['Palm Contracting', 'PC-0463', 385000]);
+  assert.ok(f.due_date.value && f.issue_date.value);
+  const c = ok(await owner.post(`/api/imports/${up.import.id}/confirm`, { counterparty: f.supplier.value, reference: f.reference.value, amount: f.amount.value, currency: 'AED', due_date: f.due_date.value }));
+  assert.equal(c.matched_forecast, false);
+  assert.equal((await owner.post(`/api/imports/${up.import.id}/confirm`, {})).status, 400, 'cannot confirm twice');
+  const page = await owner.get(`/api/documents/${up.import.document.id}/page/1`);
+  assert.equal(page.status, 200); assert.ok(page.body.startsWith('\x89PNG') || page.body.includes('PNG'));
+});
+
 test('spreadsheet: preview, validation, duplicates, fix a row, safe re-import', async () => {
   const up = ok(await owner.upload('/api/imports/sheet', 'backlog.csv', sample('3-backlog-spreadsheet.csv')));
   const st = up.import.rows.map((r) => r.status);

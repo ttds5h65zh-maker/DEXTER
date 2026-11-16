@@ -58,7 +58,8 @@ export async function shutdownOcr() {
 
 async function pdfText(buf) {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(buf), useSystemFonts: true, isEvalSupported: false, verbosity: 0 }).promise;
+  const task = pdfjs.getDocument({ data: new Uint8Array(buf), useSystemFonts: true, isEvalSupported: false, verbosity: 0 });
+  const doc = await task.promise;
   const pages = [];
   for (let n = 1; n <= Math.min(doc.numPages, 30); n++) {
     const page = await doc.getPage(n);
@@ -93,8 +94,9 @@ async function pdfText(buf) {
     method = 'ocr';
     confidence = confs.length ? Math.min(...confs) : 0;
   }
-  await doc.destroy();
-  return { text, method, confidence };
+  const pageCount = doc.numPages;
+  await task.destroy();
+  return { text, method, confidence, pages: pageCount };
 }
 
 /** Returns { text, method: 'pdf-text' | 'ocr' | 'none', confidence 0..1, error? } and never throws. */
@@ -229,4 +231,22 @@ export function knownCounterparties() {
   return [...new Set(all(
     `SELECT counterparty AS n FROM items WHERE counterparty IS NOT NULL AND voided_at IS NULL
      UNION SELECT counterparty FROM plans WHERE counterparty IS NOT NULL`).map((r) => r.n.trim()).filter((n) => n.length >= 3))];
+}
+
+/** Render one PDF page to PNG so the original can be shown beside the fields on any device. */
+export async function renderPdfPage(buf, pageNo) {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const { createCanvas } = await import('@napi-rs/canvas');
+  const task = pdfjs.getDocument({ data: new Uint8Array(buf), useSystemFonts: true, isEvalSupported: false, verbosity: 0 });
+  try {
+    const doc = await task.promise;
+    if (pageNo < 1 || pageNo > doc.numPages) return null;
+    const page = await doc.getPage(pageNo);
+    const viewport = page.getViewport({ scale: 1.6 });
+    const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport, canvas }).promise;
+    return canvas.toBuffer('image/png');
+  } finally { await task.destroy(); }
 }

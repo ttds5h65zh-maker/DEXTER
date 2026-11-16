@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS items (
 CREATE INDEX IF NOT EXISTS items_due ON items(due_date);
 CREATE TABLE IF NOT EXISTS documents (
   id INTEGER PRIMARY KEY, sha256 TEXT NOT NULL UNIQUE, filename TEXT NOT NULL, mime TEXT NOT NULL,
-  size INTEGER NOT NULL, text TEXT NOT NULL DEFAULT '', extract_method TEXT, ocr_confidence REAL,
+  size INTEGER NOT NULL, text TEXT NOT NULL DEFAULT '', extract_method TEXT, ocr_confidence REAL, pages INTEGER,
   uploaded_by INTEGER, created_at TEXT NOT NULL, is_demo INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS document_links (

@@ -12,7 +12,7 @@ import * as summary from './summary.js';
 import * as imports from './imports.js';
 import * as mail from './mail.js';
 import * as demo from './demo.js';
-import { VIEWABLE } from './extract.js';
+import { VIEWABLE, renderPdfPage } from './extract.js';
 
 const require = createRequire(import.meta.url);
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -38,7 +38,7 @@ export function createApp() {
     });
   }
 
-  app.get('/vendor/preact.js', (_req, res) => res.type('text/javascript').sendFile(require.resolve('htm/preact/standalone.module.js')));
+  app.get('/vendor/preact.js', (_req, res) => res.type('text/javascript').sendFile(path.join(ROOT, 'node_modules/htm/preact/standalone.module.js')));
   app.use(express.static(path.join(ROOT, 'public'), { index: 'index.html', maxAge: 0 }));
 
   const api = express.Router();
@@ -250,6 +250,20 @@ export function createApp() {
     res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(doc.filename)}`);
     res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self'" + (doc.mime === 'application/pdf' ? '' : '; sandbox'));
     fs.createReadStream(imports.docPath(doc)).pipe(res);
+  });
+  api.get('/documents/:id/meta', A, (req, res) => { const doc = imports.getDocument(Number(req.params.id)); if (!doc) throw new HttpError(404, 'Document not found.'); res.json({ id: doc.id, filename: doc.filename, mime: doc.mime, pages: doc.pages }); });
+  api.get('/documents/:id/page/:n', A, async (req, res) => {
+    const doc = imports.getDocument(Number(req.params.id));
+    const n = Number(req.params.n);
+    if (!doc || doc.mime !== 'application/pdf' || !Number.isInteger(n) || n < 1 || n > 50) throw new HttpError(404, 'Page not found.');
+    const cached = `${imports.docPath(doc)}.p${n}.png`;
+    if (!fs.existsSync(cached)) {
+      const png = await renderPdfPage(fs.readFileSync(imports.docPath(doc)), n);
+      if (!png) throw new HttpError(404, 'Page not found.');
+      fs.writeFileSync(cached, png, { mode: 0o600 });
+    }
+    res.setHeader('Content-Type', 'image/png');
+    fs.createReadStream(cached).pipe(res);
   });
   api.get('/documents/:id/text', A, (req, res) => {
     const doc = imports.getDocument(Number(req.params.id));

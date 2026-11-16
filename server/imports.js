@@ -10,7 +10,7 @@ import { getItem, listItems, addPayment, recordBill, findForecastMatches, findDu
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const cleanName = (name) => path.basename(String(name || 'upload')).replace(/[\u0000-\u001f<>:"|?*\\/]/g, '_').slice(0, 150) || 'upload';
 export const docPath = (doc) => path.join(UPLOAD_DIR, doc.sha256);
-const docMeta = (d) => d && { id: d.id, filename: d.filename, mime: d.mime, size: d.size, extract_method: d.extract_method, ocr_confidence: d.ocr_confidence, created_at: d.created_at, has_text: !!d.text };
+const docMeta = (d) => d && { id: d.id, filename: d.filename, mime: d.mime, size: d.size, extract_method: d.extract_method, ocr_confidence: d.ocr_confidence, pages: d.pages, created_at: d.created_at, has_text: !!d.text };
 
 /** Store a file once (keyed by content hash) and extract its text so it is searchable. */
 export async function storeDocument(buf, filename, user, { allow = DOCUMENT_TYPES, is_demo = 0 } = {}) {
@@ -24,7 +24,7 @@ export async function storeDocument(buf, filename, user, { allow = DOCUMENT_TYPE
   const ex = DOCUMENT_TYPES.has(mime) ? await extractText(buf, mime) : { text: '', method: 'none', confidence: null };
   fs.writeFileSync(path.join(UPLOAD_DIR, sha256), buf, { mode: 0o600 });
   const id = insert('documents', {
-    sha256, filename, mime, size: buf.length, text: ex.text || '', extract_method: ex.method, ocr_confidence: ex.confidence,
+    sha256, filename, mime, size: buf.length, text: ex.text || '', extract_method: ex.method, ocr_confidence: ex.confidence, pages: ex.pages ?? null,
     uploaded_by: user?.id ?? null, created_at: nowIso(), is_demo,
   });
   audit(user, 'document', id, 'uploaded', { note: filename });
@@ -435,7 +435,8 @@ export function suggestMatches(txn, account, openItems) {
     if (it.issue_date && txn.date < it.issue_date) score -= 20;
     if (score >= 40) out.push({ item_id: it.id, title: it.title, counterparty: it.counterparty, due_date: it.due_date, outstanding: it.outstanding, currency: it.currency, score, reasons, suggested_amount: Math.min(abs, it.outstanding) });
   }
-  return out.sort((a, b) => b.score - a.score).slice(0, 4);
+  out.sort((a, b) => b.score - a.score);
+  return out.filter((s) => s.score >= out[0].score - 20).slice(0, 3); // drop far weaker alternatives
 }
 
 export function listTxns(f = {}) {
