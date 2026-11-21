@@ -32,7 +32,8 @@ async function getWorker() {
       const { createWorker } = await import('tesseract.js');
       const langs = (process.env.OCR_LANGS || 'eng').split('+');
       const local = langs.length === 1 && langs[0] === 'eng';
-      const opts = { cachePath: path.join(DATA_DIR, 'ocr-cache') };
+      // errorHandler: a failed job is reported through its own promise; without this tesseract.js throws on a timer and the process dies.
+      const opts = { cachePath: path.join(DATA_DIR, 'ocr-cache'), errorHandler: () => {} };
       if (local) {
         opts.langPath = path.join(path.dirname(require.resolve('@tesseract.js-data/eng/package.json')), '4.0.0_best_int');
         opts.gzip = true;
@@ -46,8 +47,15 @@ async function getWorker() {
 async function ocr(image) {
   const job = queue.then(async () => {
     const worker = await getWorker();
-    const { data } = await worker.recognize(image);
-    return { text: data.text || '', confidence: (data.confidence || 0) / 100 };
+    try {
+      const { data } = await worker.recognize(image);
+      return { text: data.text || '', confidence: (data.confidence || 0) / 100 };
+    } catch (e) {
+      // Start from a clean worker after any failure.
+      workerPromise = null;
+      worker.terminate().catch(() => {});
+      throw new Error(typeof e === 'string' ? e : e?.message || 'OCR failed');
+    }
   });
   queue = job.catch(() => {});
   return job;
@@ -104,7 +112,15 @@ export async function extractText(buf, mime) {
   try {
     if (process.env.DEXTER_OCR === 'off' && mime !== 'application/pdf') return { text: '', method: 'none', confidence: 0, error: 'OCR is switched off (DEXTER_OCR=off).' };
     if (mime === 'application/pdf') return await pdfText(buf);
-    if (['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(mime)) return { ...(await ocr(buf)), method: 'ocr' };
+    if (['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(mime)) {
+      try {
+        const { loadImage } = await import('@napi-rs/canvas');
+        await loadImage(buf); // a damaged or half-uploaded photo fails here, safely
+      } catch {
+        return { text: '', method: 'none', confidence: 0, error: 'This image could not be opened — it may be damaged or only partly uploaded. Take or upload the photo again, or enter the fields by hand.' };
+      }
+      return { ...(await ocr(buf)), method: 'ocr' };
+    }
     if (mime === 'image/heic') return { text: '', method: 'none', confidence: 0, error: 'HEIC photos cannot be read automatically. Enter the fields by hand, or set the phone camera to JPEG.' };
     return { text: '', method: 'none', confidence: 0 };
   } catch (e) {

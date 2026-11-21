@@ -19,4 +19,7 @@ const server = app.listen(port, host, () => {
 const tick = () => sendDueReminders().catch((e) => console.error(`Reminder email failed: ${e.message}`));
 if (mailConfigured()) { setTimeout(tick, 5000).unref(); setInterval(tick, 30 * 60 * 1000).unref(); }
 
+// Safety net: a failed background task is logged (name and message only, never record data) instead of stopping the app.
+process.on('unhandledRejection', (e) => console.error(`${new Date().toISOString()} ERROR background task failed: ${e?.name || 'Error'}: ${String(e?.message || e).slice(0, 200)}`));
+
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => server.close(() => process.exit(0)));

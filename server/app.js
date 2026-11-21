@@ -92,8 +92,12 @@ export function createApp() {
       run('UPDATE users SET password_hash = ? WHERE id = ?', auth.hashPassword(d.new_password), req.user.id);
       auth.endUserSessions(req.user.id, req.sessionToken);
     }
-    if (d.name) run('UPDATE users SET name = ? WHERE id = ?', String(d.name).trim().slice(0, 100), req.user.id);
-    if (d.reminder_offsets) {
+    if (d.name !== undefined) {
+      if (typeof d.name !== 'string' || !d.name.trim()) throw bad('Name is required.');
+      run('UPDATE users SET name = ? WHERE id = ?', d.name.trim().slice(0, 100), req.user.id);
+    }
+    if (d.reminder_offsets !== undefined) {
+      if (!Array.isArray(d.reminder_offsets)) throw bad('Reminder days must be a list of numbers.');
       const offsets = [...new Set(d.reminder_offsets.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 365))].sort((a, b) => b - a).slice(0, 8);
       const prefs = JSON.parse(req.user.prefs || '{}');
       run('UPDATE users SET prefs = ? WHERE id = ?', JSON.stringify({ ...prefs, reminder_offsets: offsets }), req.user.id);
@@ -139,7 +143,7 @@ export function createApp() {
     const rate = Number(req.body.rate);
     if (!req.body.rate) run('DELETE FROM fx_rates WHERE currency = ?', c);
     else {
-      if (!(rate > 0) || !Number.isFinite(rate)) throw bad('Rate must be a positive number.');
+      if (!(rate > 0) || !Number.isFinite(rate) || rate > 1e6) throw bad('Rate must be a positive number, e.g. 3.6725.');
       run('INSERT INTO fx_rates (currency, rate, updated_by, updated_at) VALUES (?,?,?,?) ON CONFLICT(currency) DO UPDATE SET rate = excluded.rate, updated_by = excluded.updated_by, updated_at = excluded.updated_at', c, rate, req.user.id, nowIso());
     }
     audit(req.user, 'fx_rate', null, 'updated', { field: c, newValue: req.body.rate || 'removed' });
@@ -165,11 +169,16 @@ export function createApp() {
     audit(req.user, 'category', id, 'created', { note: name });
     res.json(get('SELECT * FROM categories WHERE id = ?', id));
   });
+  const cleanDetails = (d) => {
+    if (d == null) return {};
+    if (typeof d !== 'object' || Array.isArray(d)) throw bad('Details must be a set of named fields.');
+    return Object.fromEntries(Object.entries(d).slice(0, 20).filter(([, v]) => v == null || ['string', 'number'].includes(typeof v)).map(([k, v]) => [String(k).slice(0, 40), v == null ? '' : String(v).slice(0, 200)]));
+  };
   api.post('/entities', A, json, (req, res) => {
     if (!['vehicle', 'property'].includes(req.body.kind)) throw bad('Choose vehicle or property.');
     const name = String(req.body.name || '').trim().slice(0, 100);
     if (!name) throw bad('Name is required.');
-    const id = insert('entities', { kind: req.body.kind, name, details: JSON.stringify(req.body.details || {}), is_demo: demo.demoActive() ? 1 : 0, created_at: nowIso() });
+    const id = insert('entities', { kind: req.body.kind, name, details: JSON.stringify(cleanDetails(req.body.details)), is_demo: demo.demoActive() ? 1 : 0, created_at: nowIso() });
     audit(req.user, 'entity', id, 'created', { note: name });
     res.json(get('SELECT * FROM entities WHERE id = ?', id));
   });
@@ -177,7 +186,7 @@ export function createApp() {
     const e = get('SELECT * FROM entities WHERE id = ?', Number(req.params.id));
     if (!e) throw new HttpError(404, 'Not found.');
     const name = req.body.name ? String(req.body.name).trim().slice(0, 100) : e.name;
-    run('UPDATE entities SET name = ?, details = ?, archived = ? WHERE id = ?', name, JSON.stringify(req.body.details ?? JSON.parse(e.details)), req.body.archived === undefined ? e.archived : req.body.archived ? 1 : 0, e.id);
+    run('UPDATE entities SET name = ?, details = ?, archived = ? WHERE id = ?', name, JSON.stringify(req.body.details === undefined ? JSON.parse(e.details) : cleanDetails(req.body.details)), req.body.archived === undefined ? e.archived : req.body.archived ? 1 : 0, e.id);
     audit(req.user, 'entity', e.id, 'updated');
     res.json(get('SELECT * FROM entities WHERE id = ?', e.id));
   });
@@ -321,7 +330,7 @@ export function createApp() {
   app.use((err, req, res, _next) => {
     let status = err.status || err.statusCode || 500;
     let message = err.message;
-    if (err.type === 'entity.too.large') { status = 413; message = 'That file is larger than 25 MB.'; }
+    if (err.type === 'entity.too.large') { status = 413; message = err.limit > 5 * 1024 * 1024 ? 'That file is larger than 25 MB.' : 'That request is too large.'; }
     if (status >= 500) { console.error(`${new Date().toISOString()} ERROR ${req.method} ${req.path}: ${err.name}: ${err.message}`); message = 'Something went wrong on the server.'; }
     res.status(status).json({ error: message, ...(err.extra || {}) });
   });

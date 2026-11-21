@@ -1,6 +1,6 @@
 // The ledger: items (payables / receivables), payments against them, plans (recurring, schedules, loans).
 import { all, get, run, insert, tx, audit, getSettings } from './db.js';
-import { bad, HttpError, isDate, addDays, addMonths, diffDays, todayIn, monthLabel, nowIso, decimals, nameOverlap, compact, norm } from './util.js';
+import { bad, HttpError, validMinor, isDate, addDays, addMonths, diffDays, todayIn, monthLabel, nowIso, decimals, nameOverlap, compact, norm } from './util.js';
 
 export const today = () => todayIn(getSettings().timezone);
 
@@ -72,9 +72,9 @@ function cleanItemInput(d, { partial = false } = {}) {
   str('title'); str('counterparty'); str('reference', 120); str('notes', 4000); str('kind', 40);
   if (!partial && !o.title) throw bad('A title is required.');
   if (has('title') && !o.title) throw bad('A title is required.');
-  if (has('amount')) { if (!Number.isInteger(d.amount) || d.amount < 0) throw bad('Amount must be a positive number.'); o.amount = d.amount; }
+  if (has('amount')) { if (!validMinor(d.amount, { zero: true })) throw bad('Amount must be a positive number (and not unrealistically large).'); o.amount = d.amount; }
   else if (!partial) throw bad('Amount is required.');
-  if (has('min_due')) { if (d.min_due != null && (!Number.isInteger(d.min_due) || d.min_due < 0)) throw bad('Minimum due must be a positive number.'); o.min_due = d.min_due; }
+  if (has('min_due')) { if (d.min_due != null && !validMinor(d.min_due, { zero: true })) throw bad('Minimum due must be a positive number.'); o.min_due = d.min_due; }
   if (has('currency')) { const c = String(d.currency || '').toUpperCase(); if (!CUR.test(c)) throw bad('Currency must be a 3-letter code such as AED.'); o.currency = c; }
   for (const k of ['issue_date', 'due_date']) {
     if (has(k)) { if (d[k] != null && d[k] !== '' && !isDate(d[k])) throw bad(`${k.replace('_', ' ')} is not a valid date.`); o[k] = d[k] || null; }
@@ -103,7 +103,8 @@ export function createItem(data, user, extra = {}) {
   return getItem(id);
 }
 
-const TRACKED = ['title', 'counterparty', 'reference', 'direction', 'amount', 'currency', 'min_due', 'issue_date', 'due_date', 'amount_status', 'entity_id', 'category_id', 'account_id', 'notes', 'billed', 'kind'];
+// `kind` (bill, card statement, installment…) is fixed when a record is created; it is not editable.
+const TRACKED = ['title', 'counterparty', 'reference', 'direction', 'amount', 'currency', 'min_due', 'issue_date', 'due_date', 'amount_status', 'entity_id', 'category_id', 'account_id', 'notes', 'billed'];
 /** Update an item and write one audit row per changed field (who, when, old → new). */
 export function updateItem(id, patch, user, note = null) {
   return tx(() => {
@@ -144,7 +145,7 @@ export function addPayment(itemId, d, user) {
     if (item.voided_at) throw bad('This record was voided.');
     const type = d.type || 'payment';
     if (!['payment', 'refund', 'credit'].includes(type)) throw bad('Unknown payment type.');
-    if (!Number.isInteger(d.amount) || d.amount <= 0) throw bad('Enter an amount greater than zero.');
+    if (!validMinor(d.amount)) throw bad('Enter an amount greater than zero.');
     const date = d.date || today();
     if (!isDate(date)) throw bad('Payment date is not valid.');
     const f = (n) => (n / 10 ** decimals(item.currency)).toFixed(decimals(item.currency));
@@ -252,7 +253,7 @@ export function createPlan(d, user, extra = {}) {
       if (!isDate(d.anchor_date)) throw bad('First due date is required.');
       if (d.end_date && !isDate(d.end_date)) throw bad('End date is not valid.');
       if (d.end_date && d.end_date < d.anchor_date) throw bad('The end date is before the first due date.');
-      if (!base.amount) throw bad('Amount is required.');
+      if (!validMinor(base.amount)) throw bad('Amount is required.');
       const interval = Math.max(1, Math.min(Number(d.interval_n) || 1, 60));
       const id = insert('plans', {
         ...row, amount: base.amount, frequency: d.frequency, interval_n: interval, anchor_date: d.anchor_date, end_date: d.end_date || null,
@@ -271,7 +272,8 @@ export function createPlan(d, user, extra = {}) {
       principal: Number.isInteger(d.principal) ? d.principal : null,
     });
     rows.forEach((r, i) => {
-      if (!Number.isInteger(r.amount) || r.amount <= 0) throw bad(`Installment ${i + 1}: amount is required.`);
+      if (!r || typeof r !== 'object') throw bad(`Installment ${i + 1} is empty.`);
+      if (!validMinor(r.amount)) throw bad(`Installment ${i + 1}: amount is required.`);
       if (!isDate(r.due_date)) throw bad(`Installment ${i + 1}: due date is not valid.`);
       const now = nowIso();
       insert('items', {
@@ -330,7 +332,7 @@ export function updatePlan(id, d, user) {
     }
     if (plan.type === 'recurring') {
       if (d.amount !== undefined && d.amount !== plan.amount) {
-        if (!Number.isInteger(d.amount) || d.amount <= 0) throw bad('Amount must be greater than zero.');
+        if (!validMinor(d.amount)) throw bad('Amount must be greater than zero.');
         run('UPDATE plans SET amount = ? WHERE id = ?', d.amount, id);
         run(`UPDATE items SET amount = ?, updated_at = ? WHERE ${untouched} AND billed = 0 AND due_date >= ?`, d.amount, nowIso(), id, t);
         audit(user, 'plan', id, 'updated', { field: 'amount', oldValue: plan.amount, newValue: d.amount });

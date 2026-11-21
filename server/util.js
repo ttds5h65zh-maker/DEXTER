@@ -3,6 +3,10 @@
 const DECIMALS = { BHD: 3, KWD: 3, OMR: 3, JOD: 3, TND: 3, JPY: 0, KRW: 0 };
 export const decimals = (currency) => DECIMALS[currency] ?? 2;
 
+/** Largest amount accepted, in minor units: 100 billion in a 2-decimal currency. Guards against typos like 1e300. */
+export const MAX_MINOR = 1e13;
+export const validMinor = (n, { zero = false } = {}) => Number.isSafeInteger(n) && (zero ? n >= 0 : n > 0) && n <= MAX_MINOR;
+
 export class HttpError extends Error {
   constructor(status, message, extra) {
     super(message);
@@ -67,7 +71,12 @@ export function fmtMoney(minor, currency) {
 }
 
 // ---- dates ----
-export const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s + 'T00:00:00Z'));
+/** A real calendar date in YYYY-MM-DD form (rejects 2030-02-30, which Date.parse silently rolls over to 2 March). */
+export const isDate = (s) => {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(s + 'T00:00:00Z');
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s && s >= '1900-01-01' && s <= '2200-12-31';
+};
 const pad = (n) => String(n).padStart(2, '0');
 const iso = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 const utc = (s) => new Date(s + 'T00:00:00Z');

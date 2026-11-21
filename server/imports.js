@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { all, get, run, insert, tx, audit, getSettings, UPLOAD_DIR } from './db.js';
-import { bad, HttpError, parseDate, parseNumber, parseAmount, toMinor, isDate, diffDays, nowIso, norm, compact, tokens, nameOverlap, fmtMoney } from './util.js';
+import { bad, HttpError, validMinor, parseDate, parseNumber, parseAmount, toMinor, isDate, diffDays, nowIso, norm, compact, tokens, nameOverlap, fmtMoney } from './util.js';
 import { sniffMime, extractText, parseFields, knownCounterparties, DOCUMENT_TYPES } from './extract.js';
 import { getItem, listItems, addPayment, recordBill, findForecastMatches, findDuplicates, voidPayment, today } from './ledger.js';
 
@@ -449,7 +449,8 @@ export function validateImport(id) {
   });
 }
 
-export function commitImport(id, { include_duplicates = [] } = {}, user) {
+export function commitImport(id, body, user) {
+  const include_duplicates = Array.isArray(body?.include_duplicates) ? body.include_duplicates.filter((x) => Number.isInteger(Number(x))) : [];
   return tx(() => {
     const imp = get('SELECT * FROM imports WHERE id = ?', id);
     if (!imp || imp.type === 'document') throw new HttpError(404, 'Import not found.');
@@ -564,6 +565,7 @@ export function matchTxn(txnId, allocations, user) {
     if (!txn) throw new HttpError(404, 'Transaction not found.');
     if (txn.status === 'transfer' || txn.status === 'ignored') throw bad('This transaction is set aside. Move it back to unmatched first.');
     if (!Array.isArray(allocations) || !allocations.length) throw bad('Choose at least one record to match.');
+    if (allocations.some((a) => !a || typeof a !== 'object' || !Number.isInteger(a.item_id) || !validMinor(a.amount))) throw bad('Each split needs a record and an amount.');
     const total = allocations.reduce((s, a) => s + (Number.isInteger(a.amount) ? a.amount : NaN), 0);
     if (!Number.isInteger(total) || allocations.some((a) => a.amount <= 0)) throw bad('Each split needs an amount.');
     const free = Math.abs(txn.amount) - allocated(txnId);

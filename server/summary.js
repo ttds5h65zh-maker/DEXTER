@@ -195,7 +195,8 @@ export function remindersFor(user, { includeDismissed = false } = {}) {
   return out;
 }
 export function dismissReminder(user, key) {
-  const [itemId, offset, due] = String(key).split('|');
+  if (typeof key !== 'string' || !/^\d+\|-?\d+\|\d{4}-\d{2}-\d{2}$/.test(key)) throw new HttpError(400, 'Unknown reminder.');
+  const [itemId, offset, due] = key.split('|');
   run(
     `INSERT INTO reminder_state (user_id, item_id, offset_days, due_date, dismissed_at) VALUES (?,?,?,?,?)
      ON CONFLICT(user_id, item_id, offset_days, due_date) DO UPDATE SET dismissed_at = excluded.dismissed_at`,
