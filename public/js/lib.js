@@ -54,7 +54,14 @@ export const dec = (c) => DEC[c] ?? 2;
 export const num = (minor, c) => (minor / 10 ** dec(c)).toLocaleString('en-US', { minimumFractionDigits: dec(c), maximumFractionDigits: dec(c) });
 export const money = (minor, c) => `${c} ${num(minor, c)}`;
 export const compactMoney = (minor, c) => { const v = minor / 10 ** dec(c); return Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(v >= 100000 ? 0 : 1)}k` : String(Math.round(v)); };
-export const toMinor = (str, c) => { const n = Number(String(str ?? '').replace(/[,\s]/g, '')); return str === '' || str == null || !Number.isFinite(n) ? null : Math.round(n * 10 ** dec(c)); };
+/** Read a typed amount: accepts "1,500.50", "AED 1,500", Arabic-Indic digits (١٬٥٠٠٫٥٠) and the Arabic decimal mark. */
+export const parseTyped = (str) => {
+  const t = String(str ?? '').replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x660)).replace(/[\u06f0-\u06f9]/g, (d) => String(d.charCodeAt(0) - 0x6f0))
+    .replace(/\u066b/g, '.').replace(/[\u066c,\s]/g, '').replace(/^[A-Za-z]{3}|[A-Za-z]{3}$/g, '');
+  if (!t || !/^-?\d*\.?\d+$/.test(t)) return null;
+  return Number(t);
+};
+export const toMinor = (str, c) => { const n = parseTyped(str); return n == null || !Number.isFinite(n) ? null : Math.round(n * 10 ** dec(c)); };
 export const fromMinor = (minor, c) => (minor == null ? '' : (minor / 10 ** dec(c)).toFixed(dec(c)));
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

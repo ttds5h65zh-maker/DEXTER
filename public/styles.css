@@ -173,6 +173,7 @@ table.t td.right, table.t th.right { text-align: right; }
 .viewer .bar { background: var(--side); color: var(--side-ink); padding: 6px 10px; font-size: 12px; display: flex; gap: 10px; align-items: center; position: sticky; top: 0; } .viewer .bar a, .viewer .bar button { color: #fff; background: none; border: 0; cursor: pointer; font-size: 12px; text-decoration: underline; }
 .rowstat { font-size: 11px; font-weight: 650; padding: 1px 7px; border-radius: 99px; white-space: nowrap; }
 .rowstat.ready, .rowstat.imported { background: var(--green-bg); color: #2c4a35; } .rowstat.error { background: var(--red-bg); color: #7d2620; }
+.rowstat.skipped { background: #eeebe2; color: var(--ink-3); }
 .rowstat.duplicate, .rowstat.review { background: var(--amber-bg); color: #5f3f0c; } .rowstat.forecast { background: #e7e9f6; color: #2b3270; }
 td.cell-edit input { min-height: 28px; padding: 3px 6px; font-size: 12.5px; }
 .txn { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); margin-bottom: 12px; box-shadow: var(--shadow); }

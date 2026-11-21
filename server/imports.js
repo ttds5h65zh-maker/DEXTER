@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { all, get, run, insert, tx, audit, getSettings, UPLOAD_DIR } from './db.js';
-import { bad, HttpError, parseDate, parseNumber, toMinor, isDate, diffDays, nowIso, norm, compact, tokens, nameOverlap, fmtMoney } from './util.js';
+import { bad, HttpError, parseDate, parseNumber, parseAmount, toMinor, isDate, diffDays, nowIso, norm, compact, tokens, nameOverlap, fmtMoney } from './util.js';
 import { sniffMime, extractText, parseFields, knownCounterparties, DOCUMENT_TYPES } from './extract.js';
 import { getItem, listItems, addPayment, recordBill, findForecastMatches, findDuplicates, voidPayment, today } from './ledger.js';
 
@@ -22,6 +22,9 @@ export async function storeDocument(buf, filename, user, { allow = DOCUMENT_TYPE
   const existing = get('SELECT * FROM documents WHERE sha256 = ?', sha256);
   if (existing) return { doc: existing, existed: true };
   const ex = DOCUMENT_TYPES.has(mime) ? await extractText(buf, mime) : { text: '', method: 'none', confidence: null };
+  // The same file may have arrived again while the text was being read (e.g. a double tap on "upload").
+  const raced = get('SELECT * FROM documents WHERE sha256 = ?', sha256);
+  if (raced) return { doc: raced, existed: true };
   fs.writeFileSync(path.join(UPLOAD_DIR, sha256), buf, { mode: 0o600 });
   const id = insert('documents', {
     sha256, filename, mime, size: buf.length, text: ex.text || '', extract_method: ex.method, ocr_confidence: ex.confidence, pages: ex.pages ?? null,
@@ -106,10 +109,34 @@ export function discardImport(importId, user) {
 }
 
 // ---------------------------------------------------------------- tables (CSV / Excel)
+/**
+ * Pick the separator from the first lines, counting only characters outside quotes (descriptions often contain commas).
+ * The winner is the one that appears the same number of times on the most lines; title lines without it are ignored.
+ */
+function detectDelimiter(text) {
+  const cands = [',', ';', '\t', '|'];
+  const perLine = [];
+  let quoted = false;
+  let line = Object.fromEntries(cands.map((d) => [d, 0]));
+  for (let i = 0; i < text.length && perLine.length < 12; i++) {
+    const ch = text[i];
+    if (ch === '"') quoted = !quoted;
+    else if (!quoted && ch in line) line[ch]++;
+    else if (!quoted && ch === '\n') { perLine.push(line); line = Object.fromEntries(cands.map((d) => [d, 0])); }
+  }
+  if (perLine.length < 12) perLine.push(line);
+  const score = (d) => {
+    const freq = new Map();
+    for (const l of perLine) if (l[d] > 0) freq.set(l[d], (freq.get(l[d]) || 0) + 1);
+    let best = 0, mode = 0;
+    for (const [n, c] of freq) if (c > best || (c === best && n > mode)) { best = c; mode = n; }
+    return best * 1000 + mode;
+  };
+  return [...cands].sort((a, b) => score(b) - score(a))[0];
+}
 function parseCsv(text) {
-  text = text.replace(/^﻿/, '');
-  const head = text.slice(0, 5000);
-  const delim = [',', ';', '\t', '|'].map((d) => [d, head.split(d).length]).sort((a, b) => b[1] - a[1])[0][0];
+  text = text.replace(/^\ufeff/, '');
+  const delim = detectDelimiter(text);
   const rows = [];
   let row = [];
   let cell = '';
@@ -130,18 +157,35 @@ function parseCsv(text) {
   if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
   return rows;
 }
-async function parseTable(buf, mime) {
-  let rows;
+const cellText = (c) => (c == null ? '' : c instanceof Date ? c.toISOString().slice(0, 10) : typeof c === 'number' ? String(Math.round(c * 1e6) / 1e6) : String(c));
+/** The header is the row (among the first 15) whose cells best match known column names; title lines above it are dropped. */
+function findHeader(rows, fields) {
+  let best = { idx: 0, score: -1 };
+  for (let i = 0; i < Math.min(rows.length - 1, 15); i++) {
+    const score = Object.keys(guessMapping(rows[i], fields)).length;
+    if (score > best.score) best = { idx: i, score };
+  }
+  return best;
+}
+async function parseTable(buf, mime, fields) {
+  let sheets;
   if (mime === XLSX) {
-    const { readSheet } = await import('read-excel-file/node');
-    rows = (await readSheet(buf)).map((r) => r.map((c) => (c == null ? '' : c instanceof Date ? c.toISOString().slice(0, 10) : typeof c === 'number' ? String(Math.round(c * 1e6) / 1e6) : String(c))));
-  } else rows = parseCsv(buf.toString('utf8'));
-  rows = rows.map((r) => r.map((c) => String(c ?? '').trim())).filter((r) => r.some((c) => c !== ''));
-  if (rows.length < 2) throw bad('The file needs a header row and at least one data row.');
+    const readXlsxFile = (await import('read-excel-file/node')).default;
+    sheets = (await readXlsxFile(buf)).map((s) => ({ name: s.sheet, rows: s.data.map((r) => r.map(cellText)) }));
+  } else sheets = [{ name: null, rows: parseCsv(buf.toString('utf8')) }];
+  let pick = null;
+  for (const sh of sheets) {
+    const rows = sh.rows.map((r) => r.map((c) => String(c ?? '').trim())).filter((r) => r.some((c) => c !== ''));
+    if (rows.length < 2) continue;
+    const h = findHeader(rows, fields);
+    if (!pick || h.score > pick.score) pick = { ...h, rows, name: sh.name };
+  }
+  if (!pick) throw bad('The file needs a header row and at least one data row.');
+  const rows = pick.rows.slice(pick.idx);
   if (rows.length > 5001) throw bad('This file has more than 5,000 rows. Split it into smaller files.');
   const width = Math.max(...rows.map((r) => r.length));
   const headers = Array.from({ length: width }, (_, i) => rows[0][i] || `Column ${i + 1}`);
-  return { headers, rows: rows.slice(1).map((r) => Array.from({ length: width }, (_, i) => r[i] ?? '')) };
+  return { headers, sheet: pick.name, skipped_lines: pick.idx, rows: rows.slice(1).map((r) => Array.from({ length: width }, (_, i) => r[i] ?? '')) };
 }
 
 export const SHEET_FIELDS = {
@@ -159,23 +203,32 @@ export const SHEET_FIELDS = {
   paid_date: ['paid date', 'payment date', 'date paid', 'paid on'],
 };
 export const STATEMENT_FIELDS = {
-  date: ['date', 'transaction date', 'posting date', 'value date', 'txn date', 'trans date'],
-  description: ['description', 'details', 'narration', 'particulars', 'transaction', 'transaction details', 'merchant', 'memo'],
-  reference: ['reference', 'ref', 'ref no', 'cheque no', 'cheque', 'transaction id'],
-  amount: ['amount', 'transaction amount', 'value'],
-  debit: ['debit', 'withdrawal', 'withdrawals', 'paid out', 'money out', 'dr'],
-  credit: ['credit', 'deposit', 'deposits', 'paid in', 'money in', 'cr'],
+  date: ['date', 'transaction date', 'posting date', 'value date', 'txn date', 'trans date', 'booking date'],
+  description: ['description', 'details', 'narration', 'particulars', 'transaction', 'transaction details', 'merchant', 'memo', 'remarks'],
+  reference: ['reference', 'ref', 'ref no', 'cheque no', 'cheque', 'transaction id', 'reference no'],
+  debit: ['debit', 'withdrawal', 'withdrawals', 'paid out', 'money out', 'dr', 'debit amount', 'withdrawal amount', 'debits'],
+  credit: ['credit', 'deposit', 'deposits', 'paid in', 'money in', 'cr', 'credit amount', 'deposit amount', 'credits'],
+  drcr: ['dr cr', 'cr dr', 'debit credit', 'credit debit', 'd c', 'dr or cr', 'transaction type', 'type'],
+  amount: ['amount', 'transaction amount', 'value', 'amount aed', 'billing amount'],
   currency: ['currency', 'ccy'],
 };
+const DATE_FIELDS = new Set(['date', 'issue_date', 'due_date', 'paid_date']);
 function guessMapping(headers, fields) {
   const mapping = {};
   const used = new Set();
   const h = headers.map((x) => norm(x));
+  const allowed = (field, x) => {
+    const words = x.split(' ');
+    if (words.includes('balance') && field !== 'title' && field !== 'description') return false; // running balance is never an amount
+    if (words.includes('date') && !DATE_FIELDS.has(field)) return false;
+    if (field === 'amount' && words.some((w) => ['debit', 'credit', 'withdrawal', 'deposit', 'debits', 'credits', 'withdrawals', 'deposits', 'paid'].includes(w))) return false;
+    return true;
+  };
   for (const exact of [true, false]) {
     for (const [field, syns] of Object.entries(fields)) {
       if (mapping[field] != null) continue;
       for (const syn of [...syns].sort((a, b) => b.length - a.length)) {
-        const idx = h.findIndex((x, i) => !used.has(i) && (exact ? x === syn : x.split(' ').includes(syn) || (syn.includes(' ') && x.includes(syn))));
+        const idx = h.findIndex((x, i) => !used.has(i) && x && allowed(field, x) && (exact ? x === syn : x.split(' ').includes(syn) || (syn.includes(' ') && x.includes(syn))));
         if (idx >= 0) { mapping[field] = idx; used.add(idx); break; }
       }
     }
@@ -195,10 +248,11 @@ export async function createTableImport(type, buf, filename, user, { account_id 
     const prior = get("SELECT id FROM imports WHERE document_id = ? AND type = ? AND status != 'discarded' ORDER BY id DESC", doc.id, type);
     if (prior) return { import: getImport(prior.id), already: true };
   }
-  const table = await parseTable(buf, doc.mime);
   const fields = type === 'statement' ? STATEMENT_FIELDS : SHEET_FIELDS;
+  const table = await parseTable(buf, doc.mime, fields);
   const meta = {
-    filename: doc.filename, headers: table.headers, mapping: guessMapping(table.headers, fields), date_order: 'DMY',
+    filename: doc.filename, headers: table.headers, mapping: guessMapping(table.headers, fields), date_order: 'DMY', negative_means: 'flag',
+    sheet: table.sheet, skipped_lines: table.skipped_lines,
     defaults: { direction: 'out', currency: account?.currency || base, category_id: null, entity_id: null },
     account_id: account?.id ?? null, positive_is_out: account?.type === 'card',
   };
@@ -225,6 +279,7 @@ export function updateImportMeta(id, d) {
   }
   if (d.date_order) meta.date_order = d.date_order === 'MDY' ? 'MDY' : 'DMY';
   if (d.positive_is_out !== undefined) meta.positive_is_out = !!d.positive_is_out;
+  if (d.negative_means) meta.negative_means = d.negative_means === 'signed' ? 'signed' : 'flag';
   if (d.defaults) {
     const c = String(d.defaults.currency || meta.defaults.currency).toUpperCase();
     meta.defaults = {
@@ -249,6 +304,20 @@ export function updateImportRow(rowId, cells) {
 
 const TRANSFER_RE = /\b(own account|internal transfer|transfer (to|from) (my |own )?(savings|account|current)|between (own )?accounts|trf (to|from) own|to savings)\b/i;
 const CARD_REPAY_RE = /credit card (re)?payment|\bcard (re)?payment|\bcc (re)?payment|payment received|payment[ -]+thank you|card settlement/i;
+
+const TOTAL_LINE = /^(grand |sub ?|net )?totals?( (of |for )?(the )?(debits?|credits?|amount|amounts|due|payable|withdrawals?|deposits?|month|period|bills?|invoices?))?$|^sum$/;
+const BALANCE_LINE = /^((opening|closing|available|ledger|current|statement|book) balance|balance (b f|c f|brought forward|carried forward)|(brought|carried) forward|b f|c f)\b/;
+const CURRENCY_IN_TEXT = /\b(AED|USD|EUR|GBP|SAR|QAR|KWD|BHD|OMR|INR|PKR|EGP|CHF|JPY|CAD|AUD)\b|(\$)|(€)|(£)|\b(dhs?|dirhams?)\b/i;
+function currencyInText(v) {
+  const m = String(v || '').match(CURRENCY_IN_TEXT);
+  if (!m) return null;
+  if (m[1]) return m[1].toUpperCase();
+  return m[2] ? 'USD' : m[3] ? 'EUR' : m[4] ? 'GBP' : 'AED';
+}
+const PAID_YES = /^(yes|y|paid|true|✓|✔|x|done|settled|received|collected|full|fully paid)$/i;
+const PAID_NO = /^(no|n|unpaid|false|open|pending|outstanding|due|not paid|-|—|0)$/i;
+const DR_WORDS = /^(dr|d|debit|withdrawal|out|money out|db)$/i;
+const CR_WORDS = /^(cr|c|credit|deposit|in|money in)$/i;
 
 /** Re-check every row that has not been imported yet and store its parsed values, status and message. */
 export function validateImport(id) {
@@ -277,16 +346,36 @@ export function validateImport(id) {
       };
       let parsed;
       let status = 'ready';
+      const firstText = norm(raw.find((c) => /[A-Za-z\u0600-\u06ff]/.test(String(c))) || '');
+      const label = norm(imp.type === 'sheet' ? (cell('title') || cell('counterparty') || firstText) : (cell('description') || firstText));
+      if (TOTAL_LINE.test(label) || TOTAL_LINE.test(firstText) || (imp.type === 'statement' && BALANCE_LINE.test(label))) {
+        run('UPDATE import_rows SET parsed = ?, status = ?, message = ? WHERE id = ?', JSON.stringify({ warnings: [] }), 'skipped',
+          imp.type === 'sheet' ? 'Totals row — not imported' : 'Balance or totals line — not a transaction', row.id);
+        continue;
+      }
       if (imp.type === 'sheet') {
-        const currency = (cell('currency') || meta.defaults.currency).toUpperCase();
-        if (!/^[A-Z]{3}$/.test(currency)) errors.push(`Currency “${cell('currency')}” is not a 3-letter code`);
         const amountRaw = cell('amount');
+        const inCell = currencyInText(amountRaw);
+        const colCur = cell('currency').toUpperCase();
+        if (inCell && colCur && inCell !== colCur) errors.push(`The amount says ${inCell} but the currency column says ${colCur}`);
+        const currency = colCur || inCell || meta.defaults.currency;
+        if (!/^[A-Z]{3}$/.test(currency)) errors.push(`Currency “${cell('currency')}” is not a 3-letter code`);
         let amount = null;
+        let signed = null;
         if (map.amount == null) errors.push('No amount column is mapped');
         else if (!amountRaw) errors.push('Amount is missing');
-        else { const n = parseNumber(amountRaw); if (n == null || n === 0) errors.push(`Amount “${amountRaw}” is not a number`); else amount = Math.abs(toMinor(n, currency)); }
+        else {
+          const n = parseNumber(amountRaw);
+          if (n == null || n === 0) errors.push(`Amount “${amountRaw}” is not a number`);
+          else { amount = Math.abs(toMinor(n, currency)); signed = n; }
+        }
         const dirCell = cell('direction').toLowerCase();
-        const direction = dirCell ? (/\b(in|income|receiv|credit|owed to|collect)/.test(dirCell) ? 'in' : 'out') : meta.defaults.direction;
+        let direction = dirCell ? (/\b(in|income|receiv|credit|owed to|collect)/.test(dirCell) ? 'in' : 'out') : meta.defaults.direction;
+        if (signed != null && signed < 0) {
+          if (meta.negative_means === 'signed' && !dirCell) direction = 'out';
+          else if (!dirCell) errors.push('Negative amount — this looks like a credit note or a refund. Record it as a credit on the original bill, or, if this sheet uses minus for money out, choose “Negative = money out” above');
+          else warnings.push('Negative amount read as a positive amount (the direction column decides which way it goes)');
+        } else if (signed != null && meta.negative_means === 'signed' && !dirCell) direction = 'in';
         const counterparty = cell('counterparty') || null;
         const reference = cell('reference') || null;
         const title = cell('title') || [counterparty, reference].filter(Boolean).join(' · ');
@@ -298,7 +387,8 @@ export function validateImport(id) {
         let entity_id = meta.defaults.entity_id;
         if (cell('entity')) { const e = ents.find((x) => norm(x.name) === norm(cell('entity')) || nameOverlap(cell('entity'), x.name) === 1); if (e) entity_id = e.id; else warnings.push(`“${cell('entity')}” is not a known vehicle or property`); }
         let paid_amount = null;
-        if (cell('paid_amount')) {
+        if (cell('paid_amount') && PAID_YES.test(cell('paid_amount'))) paid_amount = amount;
+        else if (cell('paid_amount') && !PAID_NO.test(cell('paid_amount'))) {
           const n = parseNumber(cell('paid_amount'));
           if (n == null || n < 0) errors.push(`Paid amount “${cell('paid_amount')}” is not a number`);
           else if (amount != null && toMinor(n, currency) > amount) errors.push('Paid amount is more than the bill amount');
@@ -324,15 +414,24 @@ export function validateImport(id) {
         const description = cell('description');
         if (!description) errors.push('Description is missing');
         let amount = null;
-        if (map.amount != null && cell('amount')) {
-          const n = parseNumber(cell('amount'));
+        if ((map.debit != null || map.credit != null) && (cell('debit') || cell('credit'))) {
+          // Separate money-out and money-in columns: the column decides the direction, never the sign inside it.
+          const dr = parseNumber(cell('debit'));
+          const cr = parseNumber(cell('credit'));
+          if (cell('debit') && dr == null) errors.push(`Debit “${cell('debit')}” is not a number`);
+          if (cell('credit') && cr == null) errors.push(`Credit “${cell('credit')}” is not a number`);
+          amount = toMinor(Math.abs(cr || 0), currency) - toMinor(Math.abs(dr || 0), currency);
+        } else if (map.amount != null && cell('amount')) {
+          const { value: n, indicator } = parseAmount(cell('amount'));
+          const flag = cell('drcr');
           if (n == null) errors.push(`Amount “${cell('amount')}” is not a number`);
+          else if (flag && DR_WORDS.test(flag)) amount = -Math.abs(toMinor(n, currency));
+          else if (flag && CR_WORDS.test(flag)) amount = Math.abs(toMinor(n, currency));
+          else if (flag) errors.push(`“${flag}” in the debit/credit column is not DR or CR`);
+          else if (indicator) amount = toMinor(n, currency); // "500.00 DR" / "120.00 CR" already carry the direction
           else amount = toMinor(n, currency) * (meta.positive_is_out ? -1 : 1);
-        } else if (map.debit != null || map.credit != null) {
-          const dr = parseNumber(cell('debit')) || 0;
-          const cr = parseNumber(cell('credit')) || 0;
-          amount = toMinor(Math.abs(cr), currency) - toMinor(Math.abs(dr), currency);
-        } else errors.push('No amount column is mapped');
+        } else if (map.amount == null && map.debit == null && map.credit == null) errors.push('No amount column is mapped');
+        else errors.push('Amount is missing');
         if (amount === 0 && !errors.length) errors.push('Amount is zero');
         const reference = cell('reference') || null;
         const base = [meta.account_id, d, amount, norm(description), compact(reference)].join('|');
@@ -359,9 +458,10 @@ export function commitImport(id, { include_duplicates = [] } = {}, user) {
     const meta = JSON.parse(imp.meta);
     const include = new Set(include_duplicates.map(Number));
     const rows = all("SELECT * FROM import_rows WHERE import_id = ? AND status != 'imported' ORDER BY row_index", id);
-    const result = { imported: 0, matched_forecast: 0, needs_review: 0, skipped_duplicates: 0, errors: 0 };
+    const result = { imported: 0, matched_forecast: 0, needs_review: 0, skipped_duplicates: 0, skipped: 0, errors: 0 };
     const account = meta.account_id ? get('SELECT * FROM accounts WHERE id = ?', meta.account_id) : null;
     for (const row of rows) {
+      if (row.status === 'skipped') { result.skipped++; continue; }
       const p = JSON.parse(row.parsed);
       if (row.status === 'error') { result.errors++; continue; }
       if (imp.type === 'sheet') {

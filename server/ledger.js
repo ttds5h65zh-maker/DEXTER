@@ -251,6 +251,7 @@ export function createPlan(d, user, extra = {}) {
       if (!FREQ[d.frequency]) throw bad('Frequency must be weekly, monthly, quarterly or yearly.');
       if (!isDate(d.anchor_date)) throw bad('First due date is required.');
       if (d.end_date && !isDate(d.end_date)) throw bad('End date is not valid.');
+      if (d.end_date && d.end_date < d.anchor_date) throw bad('The end date is before the first due date.');
       if (!base.amount) throw bad('Amount is required.');
       const interval = Math.max(1, Math.min(Number(d.interval_n) || 1, 60));
       const id = insert('plans', {
@@ -401,6 +402,9 @@ export function recordBill(fields, user, { matchItemId = null, source = 'manual'
       const f = get('SELECT * FROM items WHERE id = ? AND voided_at IS NULL', matchItemId);
       if (!f) throw bad('The forecast entry to match no longer exists.');
       if (f.billed) throw bad('That entry already has a bill matched to it.');
+      const cur = String(fields.currency || f.currency).toUpperCase();
+      if (cur !== f.currency) throw bad(`The forecast is in ${f.currency} but this bill is in ${cur}. Add it as a separate bill, or correct the currency.`);
+      if ((fields.direction || f.direction) !== f.direction) throw bad(f.direction === 'out' ? 'The forecast is a payment you make; this document is money owed to you. Add it as a separate entry.' : 'The forecast is money owed to you; this document is a bill. Add it as a separate entry.');
       const patch = { billed: 1, amount_status: fields.amount_status || 'confirmed' };
       for (const k of ['amount', 'reference', 'issue_date', 'due_date', 'counterparty', 'notes']) if (fields[k] != null && fields[k] !== '') patch[k] = fields[k];
       const item = updateItem(matchItemId, patch, user, 'bill matched to forecast');

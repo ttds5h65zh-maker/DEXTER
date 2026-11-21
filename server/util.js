@@ -12,27 +12,46 @@ export class HttpError extends Error {
 }
 export const bad = (message, extra) => new HttpError(400, message, extra);
 
-/** Parse a human amount ("AED 4,750.00", "(1,200)", 1200.5) into a decimal number, or null. */
-export function parseNumber(value) {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (value == null) return null;
-  let s = String(value).trim();
-  if (!s) return null;
+/** Arabic-Indic and Persian digits to ASCII, Arabic decimal/thousands marks, and the unicode minus sign. */
+export function normalizeDigits(v) {
+  return String(v ?? '')
+    .replace(/[\u0660-\u0669]/g, (c) => String(c.charCodeAt(0) - 0x0660))
+    .replace(/[\u06f0-\u06f9]/g, (c) => String(c.charCodeAt(0) - 0x06f0))
+    .replace(/\u066b/g, '.').replace(/\u066c/g, ',').replace(/[\u2212\ufe63\uff0d]/g, '-').replace(/\u00a0/g, ' ');
+}
+
+/**
+ * Parse a human amount into { value, indicator }. Handles "AED 4,750.00", "(1,200)", "1,200.00-", "−4.75",
+ * "500.00 DR" / "120.00 CR" (indicator says which way the money went), Arabic-Indic digits, 1.234,56.
+ */
+export function parseAmount(value) {
+  if (typeof value === 'number') return { value: Number.isFinite(value) ? value : null, indicator: null };
+  if (value == null) return { value: null, indicator: null };
+  let s = normalizeDigits(value).trim();
+  if (!s) return { value: null, indicator: null };
+  let indicator = null;
+  const ind = s.match(/(?:^|[\s\d.)])(CR|DR)\.?$/i) || s.match(/^(CR|DR)\b[\s.:]*/i);
+  if (ind) { indicator = ind[1].toLowerCase(); s = s.replace(/\b(CR|DR)\b\.?/i, ' ').trim(); }
   let negative = false;
   if (/^\(.*\)$/.test(s)) { negative = true; s = s.slice(1, -1); }
   s = s.replace(/[^\d.,\-+]/g, '');
-  if (s.startsWith('-')) { negative = !negative; }
+  if (s.startsWith('-')) negative = !negative;
+  else if (s.endsWith('-')) negative = !negative; // "25.00-" (trailing minus, common in bank exports)
   s = s.replace(/[-+]/g, '');
-  if (!/\d/.test(s)) return null;
+  if (!/\d/.test(s)) return { value: null, indicator };
   // European style only when unambiguous: 1.234.567 or 4.750,00. A single "12.345" is a decimal (KWD, BHD, OMR use 3 decimals).
   if (/^\d{1,3}(\.\d{3}){2,}(,\d{1,3})?$/.test(s) || /^\d{1,3}(\.\d{3})+,\d{1,3}$/.test(s)) s = s.replace(/\./g, '').replace(',', '.');
   else if (/^\d+,\d{1,2}$/.test(s)) s = s.replace(',', '.'); // 12,50
   else s = s.replace(/,/g, '');
-  if ((s.match(/\./g) || []).length > 1) return null;
-  const n = Number(s);
-  if (!Number.isFinite(n)) return null;
-  return negative ? -n : n;
+  if ((s.match(/\./g) || []).length > 1) return { value: null, indicator };
+  let n = Number(s);
+  if (!Number.isFinite(n)) return { value: null, indicator };
+  if (negative) n = -n;
+  if (indicator === 'dr') n = -Math.abs(n);
+  if (indicator === 'cr') n = Math.abs(n);
+  return { value: n, indicator };
 }
+export const parseNumber = (value) => parseAmount(value).value;
 
 export function toMinor(value, currency) {
   const n = parseNumber(value);
@@ -98,7 +117,8 @@ export function parseDate(input, order = 'DMY') {
     if (input > 20000 && input < 80000) return { value: iso(new Date(Math.round((input - 25569) * 86400000))), ambiguous: false }; // Excel serial
     return null;
   }
-  const s = String(input).trim();
+  const s = normalizeDigits(input).trim();
+  if (/^\d{5}(\.\d+)?$/.test(s)) return parseDate(Number(s), order); // Excel date stored as a plain number
   let m;
   if ((m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T\s].*)?$/))) {
     const v = mk(m[1], m[2], m[3]);
