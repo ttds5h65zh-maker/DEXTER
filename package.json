@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
-    "test": "node --test --test-concurrency=1 test/e2e.test.js test/real.test.js test/messy.test.js test/security.test.js",
+    "test": "node --test --test-concurrency=1 test/e2e.test.js test/real.test.js test/messy.test.js test/security.test.js test/everyday.test.js",
     "demo:files": "node scripts/make-demo-files.js"
   },
   "dependencies": {

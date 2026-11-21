@@ -35,8 +35,11 @@ Add your accountant under **Settings → People and access**.
 | `DEXTER_OCR` | on | `off` disables OCR for images |
 
 ```bash
-npm test             # end-to-end test against a real server process with a throwaway data folder
+npm test             # all test suites, each against a real server process with a throwaway data folder
 ```
+
+The suites: `e2e` (the full workflow), `real` (going live after the demo), `messy` (real-world files),
+`security` (sign-in, roles, hostile input), `everyday` (days passing, two people at once).
 
 ## What is in it
 
@@ -57,6 +60,16 @@ npm test             # end-to-end test against a real server process with a thro
 
 Amounts are labelled **Confirmed**, **Estimated** or **Needs review**. A schedule you generate rather than
 copy from the lender is labelled **Projected · not verified** until you mark it verified.
+
+## What the importers understand
+
+- **Spreadsheets (CSV, Excel):** the sheet that holds the data (cover sheets are skipped), title lines above
+  the header row, TOTAL rows (left out), Yes/No in a "Paid" column, the currency written inside the amount
+  ("USD 1,200.00"), Arabic-Indic digits, Excel dates stored as numbers, day/month or month/day dates.
+  Negative amounts (credit notes) are held back for review unless you choose "Negative = money out".
+- **Bank and card exports:** separate Debit/Credit columns, a single Amount column with signs, trailing minus
+  ("25.00-"), brackets, CR/DR suffixes or a separate DR/CR column, comma or semicolon separators, decimal
+  commas, opening/closing balance lines (left out). Re-importing an overlapping period adds only new lines.
 
 ## OCR
 
@@ -97,8 +110,14 @@ becomes a record until someone confirms it. Handwriting and poor photos will nee
 - The app records payments you make yourself. It does not connect to a bank or move money.
 - The demo data is entirely fictional. `data/` is git-ignored; keep real files out of the repository.
 
+## Keeping it running
+
+If the computer restarts, start the app again with `npm start`. To have it restart by itself, run it under
+a process manager, for example `npx pm2 start server/index.js --name dexter` (then `npx pm2 save`).
+
 ## Known limits
 
 - Statement import reads CSV and Excel exports. PDF statements can be attached but are not read line by line.
 - One workspace per installation. No automatic bank feeds.
+- When two people correct the same record at the same moment, the last save wins; both changes stay in its history.
 - No built-in HTTPS. For access from a phone outside your home network, put it behind a reverse proxy or VPN.

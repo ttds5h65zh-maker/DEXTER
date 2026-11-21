@@ -48,6 +48,12 @@ export function useLoad(url, deps = []) {
   return state;
 }
 
+/** Today's date in the workspace time zone (Asia/Dubai by default), whatever the device's own zone is. */
+export const todayTz = () => {
+  try { return new Intl.DateTimeFormat('en-CA', { timeZone: app.boot.settings.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()); }
+  catch { return app.boot.today; }
+};
+
 // ---- formatting ----
 const DEC = { BHD: 3, KWD: 3, OMR: 3, JOD: 3, TND: 3, JPY: 0, KRW: 0 };
 export const dec = (c) => DEC[c] ?? 2;

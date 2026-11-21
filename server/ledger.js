@@ -1,6 +1,6 @@
 // The ledger: items (payables / receivables), payments against them, plans (recurring, schedules, loans).
 import { all, get, run, insert, tx, audit, getSettings } from './db.js';
-import { bad, HttpError, validMinor, isDate, addDays, addMonths, diffDays, todayIn, monthLabel, nowIso, decimals, nameOverlap, compact, norm } from './util.js';
+import { bad, HttpError, validMinor, fmtMoney, isDate, addDays, addMonths, diffDays, todayIn, monthLabel, nowIso, decimals, nameOverlap, compact, norm } from './util.js';
 
 export const today = () => todayIn(getSettings().timezone);
 
@@ -356,9 +356,9 @@ export function findForecastMatches({ direction = 'out', counterparty, title, cu
   const name = [counterparty, title].filter(Boolean).join(' ');
   if (!name) return [];
   const rows = all(
-    `SELECT i.id, i.title, i.counterparty, i.amount, i.currency, i.due_date, i.amount_status, i.plan_id, p.title AS plan_title
+    `SELECT i.id, i.title, i.counterparty, i.amount, i.currency, i.due_date, i.amount_status, i.plan_id, p.title AS plan_title, b.paid + b.credited AS settled
      FROM items i JOIN item_balances b ON b.item_id = i.id LEFT JOIN plans p ON p.id = i.plan_id
-     WHERE i.billed = 0 AND i.voided_at IS NULL AND i.direction = ? AND i.currency = ? AND b.paid + b.credited = 0 AND i.due_date IS NOT NULL`,
+     WHERE i.billed = 0 AND i.voided_at IS NULL AND i.direction = ? AND i.currency = ? AND i.due_date IS NOT NULL`,
     direction, currency);
   return rows
     .map((r) => {
@@ -371,7 +371,8 @@ export function findForecastMatches({ direction = 'out', counterparty, title, cu
     .slice(0, 3)
     .map((r) => ({
       id: r.id, title: r.title, amount: r.amount, currency: r.currency, due_date: r.due_date,
-      reason: ref ? `Same payee, forecast due ${r.gap === 0 ? 'the same day' : `${r.gap} day${r.gap === 1 ? '' : 's'} apart`}` : 'Same payee (bill has no date yet)',
+      settled: r.settled,
+      reason: (ref ? `Same payee, forecast due ${r.gap === 0 ? 'the same day' : `${r.gap} day${r.gap === 1 ? '' : 's'} apart`}` : 'Same payee (bill has no date yet)') + (r.settled ? ` · ${fmtMoney(r.settled, r.currency)} already paid against it` : ''),
     }));
 }
 

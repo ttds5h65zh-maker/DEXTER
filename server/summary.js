@@ -91,7 +91,8 @@ export function weekly(weeks = 8) {
   for (let w = 0; w < weeks; w++) {
     const from = addDays(start, w * 7);
     const to = addDays(from, 6);
-    const items = open.filter((i) => i.due_date >= from && i.due_date <= to);
+    // Overdue bills are reported once, in the overdue line — not again in the week they fell due.
+    const items = open.filter((i) => i.due_date >= from && i.due_date <= to && i.due_date >= t);
     const o = items.filter((i) => i.direction === 'out');
     const n = items.filter((i) => i.direction === 'in');
     out.push({ from, to, current: w === 0, outgoing: totals(o), incoming: totals(n), net: net(n, o), out_count: o.length, in_count: n.length, estimated_count: items.filter((i) => i.amount_status !== 'confirmed' || i.projected).length, items });

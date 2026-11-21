@@ -1,5 +1,5 @@
 // Record drawer (the invoice, schedule or statement behind an entry), payment form, and the "new entry" dialog.
-import { html, useState, useEffect, useLoad, app, GET, POST, PATCH, api, refresh, toast, Modal, F, Status, Loading, useForm, useAction, money, num, toMinor, fromMinor, fmtDate, rel, openItem, addMonths, GROUP_LABEL, cap, Original } from './lib.js';
+import { html, useState, useEffect, useLoad, app, GET, POST, PATCH, api, refresh, toast, Modal, F, Status, Loading, useForm, useAction, money, num, toMinor, fromMinor, fmtDate, rel, openItem, addMonths, GROUP_LABEL, cap, Original, todayTz } from './lib.js';
 
 export function DocViewer({ doc, onClose }) {
   const st = useLoad(doc.mime ? null : `/api/documents/${doc.id}/meta`);
@@ -27,7 +27,9 @@ function CatEntityFields({ v, bind, set }) {
 export function PaymentForm({ item, onDone, onClose }) {
   const incoming = item.direction === 'in';
   const cards = app.boot.accounts.filter((a) => a.type === 'card');
-  const [v, bind] = useForm({ type: 'payment', amount: fromMinor(item.outstanding, item.currency), date: app.boot.today, method: incoming ? 'bank' : 'bank', card_account_id: cards[0]?.id || '', note: '' });
+  // A settled bill opens as a refund of what was paid; anything still open opens as a payment of the balance.
+  const settled = item.outstanding === 0;
+  const [v, bind] = useForm({ type: settled ? 'refund' : 'payment', amount: fromMinor(settled ? item.paid : item.outstanding, item.currency), date: todayTz(), method: 'bank', card_account_id: cards[0]?.id || '', note: '' });
   const [file, setFile] = useState(null);
   const act = useAction();
   const save = () => act.run(async () => {
@@ -38,7 +40,8 @@ export function PaymentForm({ item, onDone, onClose }) {
     await POST(`/api/items/${item.id}/payments`, { type: v.type, amount, date: v.date, method: v.type === 'payment' ? v.method : null, card_account_id: v.method === 'card' ? Number(v.card_account_id) : null, note: v.note, proof_document_id: proof });
     toast(v.type === 'payment' ? (incoming ? 'Receipt recorded' : 'Payment recorded') : `${cap(v.type)} recorded`); refresh(); onDone?.(); onClose();
   });
-  return html`<${Modal} title=${incoming ? 'Record money received' : 'Record a payment'} onClose=${onClose} footer=${html`<button class="btn" onClick=${onClose}>Cancel</button><button class="btn primary" disabled=${act.busy} onClick=${save}>Save</button>`}>
+  const title = v.type === 'refund' ? (incoming ? 'Record a refund you gave back' : 'Record a refund you received') : v.type === 'credit' ? 'Record a credit note' : incoming ? 'Record money received' : 'Record a payment';
+  return html`<${Modal} title=${title} onClose=${onClose} footer=${html`<button class="btn" onClick=${onClose}>Cancel</button><button class="btn primary" disabled=${act.busy} onClick=${save}>Save</button>`}>
     <div class="stack">
       <div class="note">${item.title} · outstanding <b class="num">${money(item.outstanding, item.currency)}</b> of ${money(item.amount, item.currency)}. Dexter records payments you have made yourself; it does not move money.</div>
       ${act.error ? html`<div class="err">${act.error.message}</div>` : ''}
@@ -148,7 +151,7 @@ export function NewEntry({ preset = {}, onClose }) {
   };
   const save = () => act.run(async () => {
     const common = { direction: v.direction, title: v.title, counterparty: v.counterparty, currency: cur, category_id: v.category_id || null, entity_id: v.entity_id || null };
-    if (type === 'one') await POST('/api/items', { ...common, reference: v.reference, amount: toMinor(v.amount, cur), issue_date: v.issue_date || null, due_date: v.due_date || null, amount_status: v.amount_status, billed: v.amount_status === 'confirmed', kind: v.direction === 'in' ? 'invoice' : 'bill' });
+    if (type === 'one') await POST('/api/items', { ...common, reference: v.reference, amount: toMinor(v.amount, cur), issue_date: v.issue_date || null, due_date: v.due_date || null, amount_status: v.amount_status, billed: v.amount_status !== 'estimated', kind: v.direction === 'in' ? 'invoice' : 'bill' });
     else if (type === 'recurring') await POST('/api/plans', { ...common, type: 'recurring', amount: toMinor(v.amount, cur), frequency: v.frequency, interval_n: Number(v.interval_n) || 1, anchor_date: v.due_date, end_date: v.end_date || null, amount_status: v.amount_status === 'confirmed' ? 'confirmed' : 'estimated' });
     else if (type === 'schedule') {
       if (!rows.length) throw new Error('Add the installments first (generate them or add rows).');
@@ -191,7 +194,7 @@ export function NewEntry({ preset = {}, onClose }) {
         ${rows.length ? html`<div class="scroll-x" style="max-height:230px;overflow-y:auto"><table class="t"><tr><th>#</th><th>Due date</th><th>Amount (${cur})</th><th>Type</th><th></th></tr>
           ${rows.map((r, i) => html`<tr><td>${i + 1}</td><td class="cell-edit"><input type="date" value=${r.due_date} onInput=${(e) => setRow(i, 'due_date', e.target.value)} /></td><td class="cell-edit"><input type="text" value=${r.amount} onInput=${(e) => setRow(i, 'amount', e.target.value)} /></td>
             <td class="cell-edit"><select value=${r.kind} onChange=${(e) => setRow(i, 'kind', e.target.value)}><option value="installment">Installment</option><option value="balloon">Balloon</option></select></td><td><button class="btn sm ghost" onClick=${() => setRows((x) => x.filter((_, j) => j !== i))}>Remove</button></td></tr>`)}</table></div>` : ''}
-        <button class="btn sm" onClick=${() => setRows((r) => [...r, { due_date: r.length ? addMonths(r[r.length - 1].due_date || app.boot.today, 1) : v.due_date || app.boot.today, amount: v.amount, kind: 'installment' }])}>+ Add a row</button>` : ''}
+        <button class="btn sm" onClick=${() => setRows((r) => [...r, { due_date: r.length ? addMonths(r[r.length - 1].due_date || todayTz(), 1) : v.due_date || todayTz(), amount: v.amount, kind: 'installment' }])}>+ Add a row</button>` : ''}
       ${type !== 'statement' ? html`<${CatEntityFields} v=${v} bind=${bind} set=${set} />` : ''}
     </div><//>`;
 }

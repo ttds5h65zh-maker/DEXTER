@@ -1,4 +1,4 @@
-import { html, useState, useLoad, app, POST, PATCH, refresh, toast, Totals, Entry, Panel, Loading, Status, Modal, F, useForm, useAction, money, num, fmtDate, rel, monthName, addMonths, openItem, openNew, go, GROUP_LABEL, cap, dayParts } from './lib.js';
+import { html, useState, useLoad, app, todayTz, POST, PATCH, refresh, toast, Totals, Entry, Panel, Loading, Status, Modal, F, useForm, useAction, money, num, fmtDate, rel, monthName, addMonths, openItem, openNew, go, GROUP_LABEL, cap, dayParts } from './lib.js';
 
 const Top = ({ title, sub, children }) => html`<div class="top"><h1>${title}</h1>${children}${sub ? html`<div class="sub">${sub}</div>` : ''}</div>`;
 const NextCell = ({ n, cur }) => (n ? html`<a href="#" onClick=${(e) => { e.preventDefault(); openItem(n.id); }}><b class="num ${n.overdue ? 'red' : ''}">${money(n.outstanding ?? n.amount, n.currency || cur)}</b><div class="small muted">${fmtDate(n.due_date)}</div></a>` : html`<span class="muted">—</span>`);
@@ -15,7 +15,7 @@ export function ItemTable({ items, cols = ['due', 'title', 'who', 'amount', 'pai
 
 // ---------------- calendar + weekly summary ----------------
 export function CalendarPage() {
-  const [month, setMonth] = useState(app.boot.today.slice(0, 7));
+  const [month, setMonth] = useState(todayTz().slice(0, 7));
   const st = useLoad(`/api/calendar?month=${month}`);
   const wk = useLoad('/api/weekly?weeks=6');
   const d = st.data;
@@ -26,7 +26,7 @@ export function CalendarPage() {
   for (const i of d?.items || []) (by[i.due_date] ||= []).push(i);
   const shift = (n) => setMonth(addMonths(`${month}-01`, n).slice(0, 7));
   return html`<${Top} title="Calendar" sub="Solid bar = confirmed, dashed = estimated or projected, struck through = settled.">
-      <div class="row"><button class="btn" onClick=${() => shift(-1)} aria-label="Previous month">‹</button><b style="min-width:130px;text-align:center">${monthName(month)}</b><button class="btn" onClick=${() => shift(1)} aria-label="Next month">›</button><button class="btn" onClick=${() => setMonth(app.boot.today.slice(0, 7))}>Today</button></div><//>
+      <div class="row"><button class="btn" onClick=${() => shift(-1)} aria-label="Previous month">‹</button><b style="min-width:130px;text-align:center">${monthName(month)}</b><button class="btn" onClick=${() => shift(1)} aria-label="Next month">›</button><button class="btn" onClick=${() => setMonth(todayTz().slice(0, 7))}>Today</button></div><//>
     <div class="panel" style="overflow:hidden;margin-bottom:14px">${!d ? html`<div class="body"><${Loading} state=${st} /></div>` : html`<div class="cal">
       ${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((x) => html`<div class="dow">${x}</div>`)}
       ${Array.from({ length: lead }, () => html`<div class="day off"></div>`)}
@@ -130,7 +130,7 @@ function LoanCard({ p }) {
 }
 
 export function EntityPage({ id }) {
-  const [year, setYear] = useState(app.boot.today.slice(0, 4));
+  const [year, setYear] = useState(todayTz().slice(0, 4));
   const st = useLoad(`/api/entities/${id}?year=${year}`);
   const [edit, setEdit] = useState(false);
   const d = st.data;
