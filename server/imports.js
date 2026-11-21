@@ -134,7 +134,7 @@ async function parseTable(buf, mime) {
   let rows;
   if (mime === XLSX) {
     const { readSheet } = await import('read-excel-file/node');
-    rows = (await readSheet(buf)).map((r) => r.map((c) => (c == null ? '' : c instanceof Date ? c.toISOString().slice(0, 10) : String(c))));
+    rows = (await readSheet(buf)).map((r) => r.map((c) => (c == null ? '' : c instanceof Date ? c.toISOString().slice(0, 10) : typeof c === 'number' ? String(Math.round(c * 1e6) / 1e6) : String(c))));
   } else rows = parseCsv(buf.toString('utf8'));
   rows = rows.map((r) => r.map((c) => String(c ?? '').trim())).filter((r) => r.some((c) => c !== ''));
   if (rows.length < 2) throw bad('The file needs a header row and at least one data row.');

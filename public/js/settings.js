@@ -16,8 +16,7 @@ function Reminders() {
         <button class="btn sm ghost" onClick=${() => save([30, 7, 1])}>Reset to 30 / 7 / 1</button></div></div>
       <div class="note ok"><b>In-app reminders: on.</b> They appear under the bell for every signed-in user, including overdue items. ${st.data ? `${st.data.reminders.length} active right now.` : ''}</div>
       ${!e ? html`<${Loading} state=${st} />` : !e.configured ? html`<div class="note"><b>Email reminders: not configured.</b> They need an outgoing mail (SMTP) account. Whoever runs the app sets two environment variables and restarts it:
-          <pre style="margin:8px 0;white-space:pre-wrap;font-size:12px">SMTP_URL=smtps://USER:PASSWORD@smtp.your-provider.com:465
-MAIL_FROM="Dexter Payments <reminders@your-domain.com>"</pre>Then come back here and send yourself a confirmation code. Email is only reported as working after you type that code back in.</div>`
+          <pre style="margin:8px 0;white-space:pre-wrap;font-size:12px">${'SMTP_URL=smtps://USER:PASSWORD@smtp.your-provider.com:465\nMAIL_FROM="Dexter Payments <reminders@your-domain.com>"'}</pre>Then come back here and send yourself a confirmation code. Email is only reported as working after you type that code back in.</div>`
         : e.verified ? html`<div class="note ok"><b>Email reminders: delivery confirmed</b> to ${e.address}. You get one digest when a reminder day is reached.
             <label class="check" style="margin-top:8px"><input type="checkbox" checked=${e.enabled} onChange=${(ev) => PATCH('/api/me', { email_reminders: ev.target.checked }).then(() => { refresh(); toast('Saved'); })} />Send me reminder emails</label></div>`
         : html`<div class="note warn"><b>Email reminders: server is configured, delivery not confirmed yet.</b> Send a code to ${e.address} and enter it here. Until then nothing is emailed.

@@ -92,6 +92,7 @@ function cleanItemInput(d, { partial = false } = {}) {
 
 export function createItem(data, user, extra = {}) {
   const o = cleanItemInput(data);
+  if (o.amount === 0 && o.kind !== 'card_statement') throw bad('Amount must be greater than zero.');
   const now = nowIso();
   const id = insert('items', {
     direction: 'out', currency: getSettings().base_currency, ...o, ...extra,
@@ -110,6 +111,10 @@ export function updateItem(id, patch, user, note = null) {
     if (!cur) throw new HttpError(404, 'Record not found.');
     if (cur.voided_at) throw bad('This record was voided and can no longer be edited.');
     const o = cleanItemInput(patch, { partial: true });
+    if (o.currency !== undefined && o.currency !== cur.currency && get('SELECT 1 x FROM payments WHERE item_id = ? AND voided_at IS NULL', id)) {
+      throw bad('The currency cannot change after payments were recorded. Void the payments first, or void this record and enter it again.');
+    }
+    if (o.amount === 0 && cur.kind !== 'card_statement') throw bad('Amount must be greater than zero. Void the record instead.');
     if (o.amount !== undefined) {
       const b = get('SELECT paid, credited FROM item_balances WHERE item_id = ?', id);
       if (o.amount < b.paid + b.credited) throw bad('Amount cannot be lower than what has already been paid or credited.');
@@ -332,7 +337,7 @@ export function updatePlan(id, d, user) {
       if (d.active !== undefined && !!d.active !== !!plan.active) {
         run('UPDATE plans SET active = ? WHERE id = ?', d.active ? 1 : 0, id);
         // Stopping a recurring plan removes its untouched future forecasts; anything billed or paid stays.
-        if (!d.active) run(`DELETE FROM items WHERE ${untouched} AND source = 'forecast' AND (billed = 0 OR due_date > ?) AND due_date >= ?`, id, t, t);
+        if (!d.active) run(`DELETE FROM items WHERE ${untouched} AND source = 'forecast' AND billed = 0 AND due_date >= ? AND id NOT IN (SELECT item_id FROM document_links)`, id, t);
         audit(user, 'plan', id, d.active ? 'resumed' : 'stopped');
         if (d.active) materialize(true);
       }

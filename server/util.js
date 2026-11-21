@@ -24,7 +24,8 @@ export function parseNumber(value) {
   if (s.startsWith('-')) { negative = !negative; }
   s = s.replace(/[-+]/g, '');
   if (!/\d/.test(s)) return null;
-  if (/^\d{1,3}(\.\d{3})+(,\d{1,3})?$/.test(s)) s = s.replace(/\./g, '').replace(',', '.'); // 4.750,00
+  // European style only when unambiguous: 1.234.567 or 4.750,00. A single "12.345" is a decimal (KWD, BHD, OMR use 3 decimals).
+  if (/^\d{1,3}(\.\d{3}){2,}(,\d{1,3})?$/.test(s) || /^\d{1,3}(\.\d{3})+,\d{1,3}$/.test(s)) s = s.replace(/\./g, '').replace(',', '.');
   else if (/^\d+,\d{1,2}$/.test(s)) s = s.replace(',', '.'); // 12,50
   else s = s.replace(/,/g, '');
   if ((s.match(/\./g) || []).length > 1) return null;
