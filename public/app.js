@@ -134,14 +134,14 @@ function renderNav() {
   const reviewCount = S.findings.filter((f) => f.status === 'new').length;
   const draftCount = S.drafts.filter((d) => d.status !== 'completed').length;
   const todayCount = S.tasks.filter(needsAttention).length;
-  const link = (name, label, ic, count, active) =>
-    `<a class="nav-link" href="#/${name}" ${active ? 'aria-current="page"' : ''}>${icon(ic)}<span>${label}</span>${count ? `<span class="count num">${count}</span>` : ''}</a>`;
+  const link = (name, label, ic, count, active, what) =>
+    `<a class="nav-link" href="#/${name}" ${active ? 'aria-current="page"' : ''}>${icon(ic)}<span>${label}</span>${count ? `<span class="count num" title="${count} ${what}" aria-label="${count} ${what}">${count}</span>` : ''}</a>`;
   $('#nav').innerHTML = `
     <a class="brand" href="#/home"><span class="brand-mark"><svg viewBox="0 0 24 24"><path d="M8 5h4.5a7 7 0 0 1 0 14H8z"/></svg></span><span>Dexter</span></a>
     ${link('home', 'Home', 'home', 0, r.name === 'home')}
-    ${link('sources', 'Sources', 'sources', reviewCount, r.name === 'sources' || r.name === 'source')}
-    ${link('tasks', 'Tasks', 'tasks', todayCount, r.name === 'tasks')}
-    ${link('drafts', 'Drafts', 'drafts', draftCount, r.name === 'drafts' || r.name === 'draft')}
+    ${link('sources', 'Sources', 'sources', reviewCount, r.name === 'sources' || r.name === 'source', reviewCount === 1 ? 'finding to review' : 'findings to review')}
+    ${link('tasks', 'Tasks', 'tasks', todayCount, r.name === 'tasks', 'need attention today')}
+    ${link('drafts', 'Drafts', 'drafts', draftCount, r.name === 'drafts' || r.name === 'draft', draftCount === 1 ? 'draft not done yet' : 'drafts not done yet')}
     ${link('settings', 'Settings', 'settings', 0, r.name === 'settings')}
     <p class="nav-foot">Dates and times are in ${TZ_LABEL}.<br>Nothing is sent, submitted or put on a calendar without your approval.</p>`;
   const pill = $('#ai-pill');
