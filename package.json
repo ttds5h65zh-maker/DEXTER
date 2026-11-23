@@ -1,0 +1,16 @@
+{
+  "name": "dexter",
+  "version": "0.1.0",
+  "description": "Dexter — a personal command center: import a source, review what it asks of you, turn it into tasks and drafts.",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test tests/*.test.js",
+    "test:e2e": "node tests/e2e.cjs"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": ">=0.136.0"
+  }
+}
