@@ -1,0 +1,19 @@
+---------- Forwarded message ---------
+From: Hassan Properties <leasing@hassanprops.example>
+Date: Fri, Nov 20, 2026 at 11:15 AM
+Subject: Tenancy renewal - Unit 1204
+To: <sultan@example.com>
+
+
+Dear Tenant,
+
+Your tenancy contract for Unit 1204 expires on 31/12/2026. To renew, please confirm by 1 December whether you will renew for another year.
+
+The new annual rent will be AED 78,000, payable in 4 cheques. We have decided to keep the maintenance fee unchanged.
+
+Ejari registration must be completed within 14 days of signing.
+
+Could you also let us know if you still need the second parking space?
+
+Regards,
+Leasing Team

@@ -39,6 +39,10 @@ async function step(name, fn) {
 }
 
 (async () => {
+  const D = await import(require('node:url').pathToFileURL(path.join(root, 'shared', 'dates.js')).href);
+  const target = D.addDays(D.todayInDubai(), 3); // the corrected date used below
+  const targetLong = `${D.formatDate(target, { long: true })}, 11:59 PM`;
+  const targetShort = `${D.formatDate(target, { year: false })}, 11:59 PM`;
   fs.mkdirSync(out, { recursive: true });
   await startServer();
   const browser = await chromium.launch();
@@ -73,7 +77,7 @@ async function step(name, fn) {
     assert.match(await note.innerText(), /AI extraction is off/);
     assert.match(await note.innerText(), /ANTHROPIC_API_KEY/);
     await page.getByRole('button', { name: 'Fill in a sample email' }).click();
-    assert.match(await page.locator('.modal textarea').inputValue(), /internship agreement/);
+    await page.waitForFunction(() => /internship agreement/.test(document.querySelector('.modal textarea').value));
     await shot('02-import');
     await page.getByRole('button', { name: 'Import and review' }).click();
     await page.waitForSelector('.review .finding');
@@ -118,11 +122,11 @@ async function step(name, fn) {
   await step('correct the date', async () => {
     const c = card('closes next Thursday');
     await c.getByRole('button', { name: 'Another date…' }).click();
-    await c.locator('input[name=date]').fill('2026-11-18');
+    await c.locator('input[name=date]').fill(target);
     await c.locator('input[name=time]').fill('23:59');
     await c.getByRole('button', { name: 'Save date' }).click();
     await c.locator('.datebox', { hasText: 'corrected by you' }).waitFor();
-    assert.match(await c.locator('.datebox').innerText(), /Wednesday, 18 November 2026, 11:59 PM/);
+    assert.ok((await c.locator('.datebox').innerText()).includes(targetLong));
     assert.equal(await c.locator('[data-needs-confirmation]').count(), 0);
   });
 
@@ -130,7 +134,7 @@ async function step(name, fn) {
     const c = card('closes next Thursday');
     await c.getByRole('button', { name: 'Create task' }).click();
     await c.locator('.badge', { hasText: 'Task' }).waitFor();
-    assert.match(await c.innerText(), /Wed 18 Nov, 11:59 PM/);
+    assert.ok((await c.innerText()).includes(targetShort));
     const a = card('internship agreement');
     await a.getByRole('button', { name: 'Add to Today' }).click();
     await a.locator('text=on Today').waitFor();
@@ -216,14 +220,16 @@ async function step(name, fn) {
     for (const kind of ['sources', 'findings', 'tasks', 'drafts']) assert.deepEqual(after[kind], before[kind], kind + ' unchanged after restart');
     await p2.goto(base);
     await p2.waitForSelector('.board');
-    const attention = await p2.locator('.board-col.attention').innerText();
-    assert.match(attention, /closes next Thursday/);
-    assert.match(attention, /internship agreement/);
+    // pinned to Today → needs attention; due in three days → coming up this week
+    assert.match(await p2.locator('.board-col.attention').innerText(), /internship agreement/);
+    const coming = await p2.locator('.coming').innerText();
+    assert.match(coming, /closes next Thursday/);
+    assert.ok(coming.includes(targetShort.replace(/^\w+ /, '')) || coming.includes(targetShort), 'shows the corrected due date');
     await p2.screenshot({ path: path.join(out, '09-home-after-restart.png') });
     await p2.goto(sourceUrl);
     await p2.waitForSelector('.review .finding');
     const c = p2.locator('.finding', { hasText: 'closes next Thursday' }).first();
-    assert.match(await c.locator('.datebox').innerText(), /Wednesday, 18 November 2026, 11:59 PM · corrected by you/);
+    assert.ok((await c.locator('.datebox').innerText()).includes(`${targetLong} · corrected by you`));
     assert.ok(await p2.locator('.finding', { hasText: 'Reference letter no longer required' }).first().isVisible());
     assert.ok(await p2.locator('.finding', { hasText: 'nobody has confirmed' }).first().isVisible());
     // task history

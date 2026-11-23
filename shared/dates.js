@@ -310,6 +310,34 @@ const DATE_RULES = [
       return { date: addDays(ref, delta), certainty: 'relative', reasons: [], alternatives: [] };
     },
   },
+  { // Sunday 29th, Fri the 4th: a weekday and a day of the month, without the month
+    re: new RegExp(`\\b${WD_RE},?\\s+(?:the\\s+)?(\\d{1,2})(st|nd|rd|th)?\\b`, 'gi'),
+    fn: (m, ref) => {
+      if (!weekdayTokenOk(m[1])) return null;
+      const day = +m[2];
+      const after = m.input.slice(m.index + m[0].length, m.index + m[0].length + 12);
+      // without "th" the number must stand on its own: "Sunday 29, 10am" yes, "Monday 2 people" no
+      if (!m[3] && !/^\s*(?:[,.;)]|$|(?:at|@|by|from|before|until)\b)/i.test(after)) return null;
+      if (/^\s*(?:a\.?m|p\.?m|h\b|[:.]\d)/i.test(after) || day < 1 || day > 31) return null;
+      const y = +ref.slice(0, 4);
+      const mo = +ref.slice(5, 7);
+      let date = null;
+      for (let k = 0; k <= 3 && (!date || date < ref); k++) {
+        const mm = mo - 1 + k;
+        date = mk(y + Math.floor(mm / 12), (mm % 12) + 1, day);
+      }
+      if (!date || date < ref) return null;
+      const wd = weekdayIndex(m[1]);
+      if (weekdayOf(date) === wd) return { date, certainty: 'relative', reasons: [], alternatives: [] };
+      const nextWd = addDays(ref, (wd - weekdayOf(ref) + 7) % 7);
+      return {
+        date,
+        certainty: 'ambiguous',
+        reasons: [`The source says ${WD_LONG[wd]} the ${day}${m[3] || ''}, but ${formatDate(date)} is a ${WD_LONG[weekdayOf(date)]}.`],
+        alternatives: [{ date: nextWd, label: `${formatDate(nextWd)} (the next ${WD_LONG[wd]})` }],
+      };
+    },
+  },
   { // by the 15th
     re: /\bthe\s+(\d{1,2})(?:st|nd|rd|th)\b(?!\s+(?:of|floor|time|year|edition|chapter|week|day|century|grade|place))/gi,
     fn: (m, ref) => {
@@ -479,7 +507,7 @@ export function interpretDates(text, refDate) {
       for (const a of t.altTimes) alternatives.push({ date: d.date, time: a.time, label: `${formatDate(d.date)}, ${a.label}` });
     }
     return {
-      phrase: phrase.replace(/\s+/g, ' ').trim(),
+      phrase: phrase.replace(/\s+/g, ' ').trim().replace(/(\w{4,})\.$/, '$1'),
       start: d.start,
       end: d.end,
       date,

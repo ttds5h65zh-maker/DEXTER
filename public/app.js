@@ -1,4 +1,5 @@
-import { formatDate, formatTime, formatDue, relativeDay, diffDays, formatInstant, addDays, TZ_LABEL } from '/shared/dates.js';
+import { formatDate, formatTime, formatDue, relativeDay, diffDays, formatInstant, TZ_LABEL } from '/shared/dates.js';
+import { cleanQuote } from '/shared/text.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -186,7 +187,7 @@ function taskRow(t, { showToday = true } = {}) {
   return `<div class="task-row">
     <button class="check ${done ? 'done' : ''}" data-action="task-toggle-done" data-id="${t.id}" aria-label="${done ? 'Reopen' : 'Mark done'}: ${esc(t.title)}">${icon('check')}</button>
     <button class="row-main" data-action="task-open" data-id="${t.id}">
-      <span class="row-title ${done ? 'struck' : ''}">${esc(t.title)}</span>
+      <span class="row-title ${done ? 'struck' : ''}" dir="auto">${esc(t.title)}</span>
       <span class="row-meta">${dueChip(t)}${t.status === 'waiting' ? `<span>Waiting on ${esc(t.waitingOn || 'someone')}</span>` : ''}${t.todayOn && !done && (!t.due || t.due.date !== today()) ? '<span>Pinned to Today</span>' : ''}${source ? `<span>${esc(source.title)}</span>` : ''}${demoBadge(t)}</span>
     </button>
     ${showToday && t.status === 'open' ? `<button class="icon-btn ${t.todayOn ? 'on' : ''}" data-action="task-today" data-id="${t.id}" title="${t.todayOn ? 'Remove from Today' : 'Add to Today'}" aria-label="${t.todayOn ? 'Remove from Today' : 'Add to Today'}" aria-pressed="${!!t.todayOn}">${icon('sun')}</button>` : ''}
@@ -310,6 +311,13 @@ function basisText(s) {
   return `Written date unknown. Dexter counts “tomorrow”, “Friday” and similar from ${d}, the day you imported it, and asks you to confirm.`;
 }
 
+/** "in 3 days", or "4 days ago · already passed" for dates behind us. */
+function whenHint(date) {
+  const n = diffDays(date, today());
+  if (n < 0) return `<span class="when past">${esc(relativeDay(date, today()))} · already passed</span>`;
+  return `<span class="when">${esc(relativeDay(date, today()).replace(/^In /, 'in ').replace(/^Today$/, 'today').replace(/^Tomorrow$/, 'tomorrow'))}</span>`;
+}
+
 function dateBox(f) {
   const d = f.date;
   if (ui.edit && ui.edit.id === f.id && ui.edit.field === 'date') {
@@ -325,7 +333,7 @@ function dateBox(f) {
   if (d.status === 'needs_confirmation') {
     return `<div class="datebox needs" data-needs-confirmation>
       <div class="line"><span class="badge warn">Confirm this date</span><span class="small muted">Nothing is scheduled until you do.</span></div>
-      <p class="reading">${d.phrase ? `The source says <q>${esc(d.phrase)}</q>. ` : ''}Dexter reads that as <b>${reading}</b>, ${TZ_LABEL}.</p>
+      <p class="reading">${d.phrase ? `The source says <q dir="auto">${esc(d.phrase)}</q>. ` : ''}Dexter reads that as <b>${reading}</b>, ${TZ_LABEL} (${whenHint(d.date)}).</p>
       ${d.reasons.length ? `<ul>${d.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
       ${d.basisDate && d.certainty !== 'explicit' ? `<p class="small muted">Counted from the source date, ${esc(formatDate(d.basisDate))}.</p>` : ''}
       <div class="line">
@@ -336,7 +344,7 @@ function dateBox(f) {
     </div>`;
   }
   const how = d.confirmedBy === 'you' ? (d.corrected ? 'corrected by you' : 'confirmed by you') : 'stated in the source';
-  return `<div class="datebox"><div class="line">${icon('cal')}<span><b>${reading}</b> <span class="muted">· ${how}</span></span><span class="spacer"></span><button class="linkish" data-action="finding-edit" data-field="date" data-id="${f.id}">Change</button></div></div>`;
+  return `<div class="datebox"><div class="line date-line">${icon('cal')}<span class="grow"><b>${reading}</b> <span class="muted">· ${how}</span> · ${whenHint(d.date)}</span><button class="linkish" data-action="finding-edit" data-field="date" data-id="${f.id}">Change</button></div></div>`;
 }
 
 function findingCard(f, source) {
@@ -348,7 +356,7 @@ function findingCard(f, source) {
   if (f.status === 'dismissed') {
     return `<article class="card finding dismissed" id="f-${f.id}">
       <div class="finding-top"><span class="badge">${TYPE[f.type]}</span><span class="small muted">Dismissed</span><span class="spacer"></span><button class="btn small" data-action="finding-status" data-status="new" data-id="${f.id}">Restore</button></div>
-      <p class="finding-title">${esc(f.title)}</p></article>`;
+      <p class="finding-title" dir="auto">${esc(f.title)}</p></article>`;
   }
   return `<article class="card finding ${f.type} ${ui.selected === f.id ? 'sel' : ''}" id="f-${f.id}" data-finding="${f.id}">
     <div class="finding-top">
@@ -356,13 +364,14 @@ function findingCard(f, source) {
         ? `<select class="input" style="width:auto;min-height:32px;padding:2px 8px" form="ft-${f.id}" name="type">${Object.entries(TYPE).map(([k, v]) => `<option value="${k}" ${k === f.type ? 'selected' : ''}>${v}</option>`).join('')}</select>`
         : `<span class="badge ${f.type}">${TYPE[f.type]}</span>`}
       <span class="small muted">${originLabel}${f.edited ? ' · edited by you' : ''}</span>
+      ${f.context === 'earlier' ? '<span class="badge" title="This passage is in an earlier message quoted further down the email">Earlier in the thread</span>' : ''}
       <span class="spacer"></span>
       ${f.status === 'new' ? '<span class="badge question">To review</span>' : '<span class="badge ok">Reviewed</span>'}
     </div>
     ${editingTitle
       ? `<form id="ft-${f.id}" data-form="finding-title" data-id="${f.id}" style="display:grid;gap:8px"><textarea class="input" name="title" rows="2" required>${esc(f.title)}</textarea><div class="row"><button class="btn small primary" type="submit">Save</button><button class="btn small quiet" type="button" data-action="edit-cancel">Cancel</button></div></form>`
-      : `<p class="finding-title">${esc(f.title)}</p>`}
-    ${f.evidence ? `<blockquote class="evidence"><q>${esc(f.evidence.quote.replace(/\s+/g, ' '))}</q>
+      : `<p class="finding-title" dir="auto">${esc(f.title)}</p>`}
+    ${f.evidence ? `<blockquote class="evidence"><q dir="auto">${esc(cleanQuote(f.evidence.quote))}</q>
       <span class="where"><span>Original passage${page ? ` · page ${page.number}` : ''}</span><button class="linkish" data-action="show-in-source" data-id="${f.id}">Show in source</button></span></blockquote>` : ''}
     ${dateBox(f)}
     ${ui.askDate === f.id ? `<div class="prompt"><p><b>This date is not confirmed yet.</b> Confirm it above so the task gets the right due date, or create the task without one.</p><div class="row"><button class="btn small" data-action="finding-task-nodate" data-id="${f.id}">Create task without a date</button><button class="btn small quiet" data-action="ask-cancel">Cancel</button></div></div>` : ''}
@@ -431,7 +440,7 @@ function viewSource(r) {
 
 function selBarHtml() {
   if (!ui.selection) return `<span class="muted">Missing something? Select any passage in the source to add it as a finding.</span>`;
-  return `<span class="quote">Add “${esc(ui.selection.text.replace(/\s+/g, ' '))}” as</span>
+  return `<span class="quote">Add “${esc(cleanQuote(ui.selection.text))}” as</span>
     <button class="btn small" data-action="manual-add" data-type="deadline">Deadline</button>
     <button class="btn small" data-action="manual-add" data-type="decision">Decision</button>
     <button class="btn small" data-action="manual-add" data-type="question">Open question</button>`;
@@ -492,9 +501,9 @@ function taskModal(t) {
           <option value="done" ${t.status === 'done' ? 'selected' : ''}>Done</option></select></label>
         <label class="field"><span>Waiting on</span><input class="input" name="waitingOn" value="${esc(t.waitingOn)}" placeholder="Who owes you a reply?"></label>
       </div>
-      <label class="row" style="min-height:40px"><input type="checkbox" name="today" ${t.todayOn ? 'checked' : ''} style="width:18px;height:18px"> <span>Show on Today</span></label>
+      <label class="row" style="min-height:40px"><input type="checkbox" name="today" ${t.todayOn ? 'checked' : ''} style="width:22px;height:22px"> <span>Show on Today</span></label>
       <label class="field"><span>Notes</span><textarea class="input" name="notes" rows="3">${esc(t.notes)}</textarea></label>
-      ${source ? `<p class="small">From ${finding ? `<a href="#/source/${source.id}?f=${finding.id}" data-action="modal-close">${esc(source.title)}</a>` : esc(source.title)}${finding && finding.evidence ? `: <span class="muted">“${esc(finding.evidence.quote.replace(/\s+/g, ' ').slice(0, 160))}”</span>` : ''}</p>` : ''}
+      ${source ? `<p class="small">From ${finding ? `<a href="#/source/${source.id}?f=${finding.id}" data-action="modal-close">${esc(source.title)}</a>` : esc(source.title)}${finding && finding.evidence ? `: <span class="muted">“${esc(cleanQuote(finding.evidence.quote).slice(0, 160))}”</span>` : ''}</p>` : ''}
       <div><h3 style="margin-bottom:8px">History</h3><ol class="history">${[...t.history].reverse().map((h) => `<li><time>${esc(formatInstant(h.at))}</time><span>${esc(h.text)}</span></li>`).join('')}</ol></div>
     </form>
     <footer><button class="btn quiet danger" data-action="task-delete" data-id="${t.id}">Delete</button><button class="btn" data-action="task-nudge" data-id="${t.id}">Draft follow-up</button><span class="spacer"></span><button class="btn quiet" data-action="modal-close">Cancel</button><button class="btn primary" type="submit" form="task-form">Save changes</button></footer>
@@ -566,7 +575,7 @@ function draftSide(d) {
       ${done ? `<p class="small muted">${d.kind === 'email' ? 'You marked this as sent. The reply is tracked under “Waiting on”.' : 'You marked this as done.'}</p>` : ''}
     </div>
     ${finding || source ? `<div class="card"><p class="eyebrow">Where this came from</p>
-      ${finding ? `<p><span class="badge ${finding.type}">${TYPE[finding.type]}</span> ${esc(finding.title)}</p>${finding.evidence ? `<blockquote class="evidence"><q>${esc(finding.evidence.quote.replace(/\s+/g, ' '))}</q></blockquote>` : ''}` : ''}
+      ${finding ? `<p><span class="badge ${finding.type}">${TYPE[finding.type]}</span> ${esc(finding.title)}</p>${finding.evidence ? `<blockquote class="evidence"><q dir="auto">${esc(cleanQuote(finding.evidence.quote))}</q></blockquote>` : ''}` : ''}
       ${source ? `<a href="#/source/${source.id}${finding ? `?f=${finding.id}` : ''}">Open “${esc(source.title)}”</a>` : ''}</div>` : ''}
     <div class="card"><p class="eyebrow">History</p><ol class="history">${[...d.history].reverse().map((h) => `<li><time>${esc(formatInstant(h.at))}</time><span>${esc(h.text)}</span></li>`).join('')}</ol></div>`;
 }
@@ -686,7 +695,7 @@ function viewSearch(r) {
   return `<div class="page" style="max-width:860px">
     <div class="page-head"><div><h1>${total ? plural(total, 'result') : 'No results'} for “${esc(q)}”</h1>${total ? '' : '<p class="lede">Nothing saved in Dexter matches all of those words. Try fewer or different words.</p>'}</div></div>
     ${group('Tasks', res.tasks.map((t) => `<button class="result row-main" style="width:100%" data-action="task-open" data-id="${t.id}"><span class="row-title">${hl(t.title)}</span><span class="snip">${t.status === 'done' ? 'Done' : t.status === 'waiting' ? `Waiting on ${esc(t.waitingOn)}` : t.due ? esc(formatDue(t.due)) : 'No due date'}${t.notes ? ' · ' + hl(t.notes) : ''}</span></button>`))}
-    ${group('Findings', res.findings.map((f) => `<a class="result" href="#/source/${f.sourceId}?f=${f.id}"><span class="row"><span class="badge ${f.type}">${TYPE[f.type]}</span><span class="row-title">${hl(f.title)}</span></span>${f.evidence ? `<span class="snip">“${hl(f.evidence.quote)}”</span>` : ''}</a>`))}
+    ${group('Findings', res.findings.map((f) => `<a class="result" href="#/source/${f.sourceId}?f=${f.id}"><span class="row"><span class="badge ${f.type}">${TYPE[f.type]}</span><span class="row-title">${hl(f.title)}</span></span>${f.evidence ? `<span class="snip">“${hl(cleanQuote(f.evidence.quote))}”</span>` : ''}</a>`))}
     ${group('Sources', res.sources.map((s) => `<a class="result" href="#/source/${s.id}"><span class="row"><span class="badge">${KIND[s.kind]}</span><span class="row-title">${hl(s.title)}</span></span><span class="snip">${hl(s.text)}</span></a>`))}
     ${group('Drafts', res.drafts.map((d) => `<a class="result" href="#/draft/${d.id}"><span class="row"><span class="badge">${DRAFT_KIND[d.kind]}</span><span class="row-title">${hl(d.subject)}</span></span><span class="snip">${hl(d.body)}</span></a>`))}
   </div>`;
@@ -761,7 +770,7 @@ function importModal(m) {
         <label class="field"><span>Written on (optional)</span><input class="input" type="date" name="sourceDate" value="${esc(m.sourceDate || '')}" max="${today()}">
           <small>Used to work out “tomorrow” or “next Thursday”.</small></label>
       </div>
-      ${ai ? `<label class="row"><input type="checkbox" name="useAI" checked style="width:18px;height:18px"><span>Use AI extraction <span class="muted small">(sends this text to Anthropic’s API)</span></span></label>`
+      ${ai ? `<label class="row"><input type="checkbox" name="useAI" checked style="width:22px;height:22px"><span>Use AI extraction <span class="muted small">(sends this text to Anthropic’s API)</span></span></label>`
         : `<p class="notice"><b>AI extraction is off.</b> Dexter will use its built-in rules, and you can add anything it misses by selecting text in the source. To switch AI on, set <code>ANTHROPIC_API_KEY</code> before starting Dexter (see <a href="#/settings" data-action="modal-close">Settings</a>).</p>`}
     </form>
     <footer><button class="btn quiet" data-action="modal-close">Cancel</button><button class="btn primary" type="submit" form="import-form" ${m.working ? 'disabled' : ''}>${m.working ? 'Reading…' : 'Import and review'}</button></footer>
@@ -817,6 +826,7 @@ async function submitImport(form) {
   keepImportFields();
   const useAI = form.elements.useAI ? form.elements.useAI.checked : false;
   if (m.tab === 'pdf' && !m.file) return toast('Choose a PDF first.', 'error');
+  if (m.tab === 'pdf' && m.file.size > 25 * 1048576) return toast('That PDF is larger than 25 MB. Split it, or copy the text you need and paste it as a note.', 'error');
   m.working = true;
   renderModal();
   try {
@@ -869,6 +879,7 @@ const actions = {
   'pane': (el) => { ui.pane = el.dataset.pane; render(); },
   'filter': (el) => { ui.filter = el.dataset.filter; render(); },
   'mark-click': (el) => {
+    if (!window.getSelection().isCollapsed) return; // the user is selecting text, not opening the finding
     ui.selected = el.dataset.id;
     ui.pane = 'findings';
     ui.filter = 'all';
@@ -994,13 +1005,15 @@ const forms = {
 // Events
 // ---------------------------------------------------------------------------
 document.addEventListener('click', (ev) => {
-  const el = ev.target.closest('[data-action]');
+  let el = ev.target.closest('[data-action]');
+  // The backdrop only reacts to clicks on itself, never to clicks inside the dialog.
+  if (el && el.dataset.action === 'modal-close-scrim' && ev.target !== el) el = null;
   // close any open "more" menu when clicking elsewhere
   document.querySelectorAll('details.more[open]').forEach((d) => { if (!d.contains(ev.target) || (el && el.closest('.menu'))) d.removeAttribute('open'); });
   if (!el) return;
   const fn = actions[el.dataset.action];
   if (!fn) return;
-  if (el.tagName !== 'A' && el.tagName !== 'LABEL') ev.preventDefault();
+  if (el.tagName === 'BUTTON') ev.preventDefault();
   Promise.resolve(fn(el, ev)).catch((err) => toast(err.message, 'error'));
 });
 document.addEventListener('submit', (ev) => {
@@ -1088,7 +1101,7 @@ window.addEventListener('hashchange', async () => {
   }
   ui.edit = null;
   ui.askDate = null;
-  if (r.name === 'search') $('#search').value = r.params.get('q') || '';
+  if (r.name === 'search' && document.activeElement !== $('#search')) $('#search').value = r.params.get('q') || '';
   render();
   if (r.name === 'source' && r.params.get('f')) {
     const card = $(`#f-${r.params.get('f')}`);
@@ -1098,7 +1111,8 @@ window.addEventListener('hashchange', async () => {
   }
 });
 window.addEventListener('beforeunload', () => {
-  if (draftDirty) navigator.sendBeacon && fetch(`/api/drafts/${draftDirty.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(draftDirty.patch), keepalive: true });
+  // save an edit typed in the last moment before closing the tab
+  if (draftDirty) fetch(`/api/drafts/${draftDirty.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(draftDirty.patch), keepalive: true });
 });
 // Keep "today" honest if the app stays open past midnight or the server restarts.
 document.addEventListener('visibilitychange', async () => {

@@ -28,18 +28,22 @@ const MIME = {
 };
 const STATIC_ROOTS = { '/shared/': path.join(here, 'shared'), '/samples/': path.join(here, 'samples'), '/': path.join(here, 'public') };
 
+// Reads a request body up to `limit` bytes. A larger body is read to the end and
+// thrown away, so the browser receives the "too large" answer instead of a reset.
 function readBody(req, limit) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    let tooLarge = Number(req.headers['content-length'] || 0) > limit;
     req.on('data', (c) => {
       size += c.length;
-      if (size > limit) {
-        reject(new AppError(413, 'too_large', `That upload is too large (limit ${Math.round(limit / 1048576)} MB).`));
-        req.destroy();
-      } else chunks.push(c);
+      if (size > limit) tooLarge = true;
+      if (!tooLarge) chunks.push(c);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('end', () => {
+      if (tooLarge) reject(new AppError(413, 'too_large', `That upload is too large (the limit is ${Math.round(limit / 1048576)} MB).`));
+      else resolve(Buffer.concat(chunks));
+    });
     req.on('error', reject);
   });
 }
@@ -93,7 +97,7 @@ async function main() {
         text: parsed.text,
         pages: parsed.pages,
         filename: (url.searchParams.get('filename') || 'document.pdf').slice(0, 200),
-        title: url.searchParams.get('title') || '',
+        title: url.searchParams.get('title') || parsed.title || '',
         sourceDate: url.searchParams.get('sourceDate') || '',
         useAI: url.searchParams.get('useAI') !== 'false',
       });

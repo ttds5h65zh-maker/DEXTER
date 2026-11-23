@@ -1,0 +1,14 @@
+Project sync — 23 Nov
+Attendees: Sultan, Noura, Faisal
+
+Decisions
+1. We will use PostgreSQL instead of MongoDB.
+2. Launch moved to 15 January 2027.
+
+Action items
+- Noura to send revised budget by Wednesday.
+- Faisal: follow up with legal on the NDA.
+
+Open questions
+- Who owns the onboarding emails?
+- Do we need an Arabic version of the landing page for launch?
