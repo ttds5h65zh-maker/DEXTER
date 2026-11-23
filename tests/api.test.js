@@ -162,6 +162,18 @@ test('the whole workflow survives a restart', async (t) => {
     assert.equal(cross.status, 403);
   });
 
+  await t.test('requests addressed to an unknown host name are refused (DNS rebinding)', async () => {
+    const http = await import('node:http');
+    const status = (host) => new Promise((resolve, reject) => {
+      http.get({ host: '127.0.0.1', port: PORT, path: '/api/state', headers: { host } }, (res) => { res.resume(); resolve(res.statusCode); }).on('error', reject);
+    });
+    assert.equal(await status('attacker.example'), 403);
+    assert.equal(await status(`localhost:${PORT}`), 200);
+    assert.equal(await status(`192.168.1.20:${PORT}`), 200);
+    const sameSite = await fetch(`${base}/api/demo/remove`, { method: 'POST', headers: { 'sec-fetch-site': 'cross-site' } });
+    assert.equal(sameSite.status, 403);
+  });
+
   await t.test('after a restart everything is exactly as it was', async () => {
     const before = (await call('GET', '/api/state')).json.state;
     await stopServer();

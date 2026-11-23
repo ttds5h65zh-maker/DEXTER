@@ -57,12 +57,61 @@ async function readJson(req) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Who may talk to Dexter
+// ---------------------------------------------------------------------------
+const ALLOWED_HOSTS = (process.env.DEXTER_ALLOWED_HOSTS || '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean);
+
+/**
+ * Only answer requests addressed to localhost, an IP address, or a name listed
+ * in DEXTER_ALLOWED_HOSTS. This stops a malicious website from pointing its own
+ * domain at this computer ("DNS rebinding") and reading your data.
+ */
+function hostAllowed(hostHeader) {
+  if (ALLOWED_HOSTS.includes('*')) return true;
+  if (!hostHeader) return false;
+  let name;
+  try {
+    name = new URL(`http://${hostHeader}`).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (name === 'localhost' || name.endsWith('.localhost') || ALLOWED_HOSTS.includes(name)) return true;
+  return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(name) || name.startsWith('['); // IP addresses cannot be re-pointed
+}
+
+/** Did this request come from Dexter's own page (not from another website)? */
+function fromOwnPage(req) {
+  const site = req.headers['sec-fetch-site'];
+  if (site) return site === 'same-origin' || site === 'none';
+  const origin = req.headers.origin;
+  if (!origin) return true; // not sent by a browser page (curl, tests)
+  try {
+    const host = new URL(origin).host;
+    return host === req.headers.host || host === req.headers['x-forwarded-host'];
+  } catch {
+    return false;
+  }
+}
+
+const SECURITY_HEADERS = {
+  'x-content-type-options': 'nosniff',
+  'referrer-policy': 'no-referrer',
+  'content-security-policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'",
+};
+
 function serveStatic(req, res, pathname) {
   if (pathname === '/') pathname = '/index.html';
   const prefix = Object.keys(STATIC_ROOTS).find((p) => pathname.startsWith(p));
   const root = STATIC_ROOTS[prefix];
-  const file = path.normalize(path.join(root, decodeURIComponent(pathname.slice(prefix.length))));
-  if (!file.startsWith(root + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+  let rel;
+  try {
+    rel = decodeURIComponent(pathname.slice(prefix.length));
+  } catch {
+    rel = '\0';
+  }
+  const file = path.normalize(path.join(root, rel));
+  if (rel.includes('\0') || !file.startsWith(root + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
     res.writeHead(404, { 'content-type': 'text/plain' });
     res.end('Not found');
     return;
@@ -126,6 +175,12 @@ async function main() {
   }));
 
   const server = http.createServer(async (req, res) => {
+    for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
+    if (!hostAllowed(req.headers.host)) {
+      console.warn(`Refused a request addressed to "${req.headers.host}". Add it to DEXTER_ALLOWED_HOSTS to allow it.`);
+      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
+      return res.end('Dexter only answers on localhost or an IP address. To reach it by another name, start it with DEXTER_ALLOWED_HOSTS set to that name.');
+    }
     const url = new URL(req.url, 'http://localhost');
     try {
       if (!url.pathname.startsWith('/api/')) {
@@ -133,10 +188,7 @@ async function main() {
         return serveStatic(req, res, url.pathname);
       }
       // Requests that change data must come from Dexter's own page.
-      if (req.method !== 'GET') {
-        const origin = req.headers.origin;
-        if (origin && new URL(origin).host !== req.headers.host) throw new AppError(403, 'origin', 'Cross-site requests are not allowed.');
-      }
+      if (req.method !== 'GET' && !fromOwnPage(req)) throw new AppError(403, 'cross_site', 'Cross-site requests are not allowed.');
       const ics = /^\/api\/drafts\/([^/]+)\/event\.ics$/.exec(url.pathname);
       if (req.method === 'GET' && ics) {
         const body = dexter.ics(ics[1]);
@@ -173,7 +225,16 @@ async function main() {
         : ai.reason === 'disabled'
           ? 'AI extraction: off (DEXTER_AI=off)'
           : 'AI extraction: off — set ANTHROPIC_API_KEY to switch it on. Manual review and built-in rules are active.';
-    console.log(`Dexter is running at http://${HOST}:${PORT}\nData file: ${dexter.file}\n${aiLine}`);
+    const shown = HOST === '0.0.0.0' || HOST === '::' ? 'localhost' : HOST.includes(':') ? `[${HOST}]` : HOST;
+    console.log(`Dexter is running at http://${shown}:${PORT}\nData file: ${dexter.file}\n${aiLine}`);
+    if (!['127.0.0.1', 'localhost', '::1'].includes(HOST)) {
+      console.log(`Note: HOST=${HOST} lets other devices on your network open Dexter (for example a tablet, using this computer's IP address). Dexter has no login, so only do this on a network you trust.`);
+    }
+  });
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') console.error(`Port ${PORT} is already in use. Dexter may already be running — open http://localhost:${PORT} — or start it on another port, for example: PORT=4180 npm start`);
+    else console.error(err);
+    process.exit(1);
   });
   const stop = () => server.close(() => process.exit(0));
   process.on('SIGINT', stop);

@@ -184,7 +184,7 @@ async function step(name, fn) {
     assert.match(await page.locator('#draft-side').innerText(), /Dexter cannot send this/);
     assert.equal(await page.getByRole('link', { name: 'Open in mail app' }).count(), 0, 'no hand-off before approval');
     const body = page.locator('.composer textarea');
-    await body.fill('Hi Mariam,\n\nThanks for this. I will scan the signed agreement and send it to the placement office on Sunday.\n\nSultan');
+    await body.fill('Hi Mariam,\n\nThanks for this. I will scan the signed agreement and send it to the placement office on Sunday.\n\nYousef');
     await page.locator('#save-state', { hasText: 'Saved at' }).waitFor();
     await shot('06-draft-review');
     await page.getByRole('button', { name: 'Approve for sending' }).click();

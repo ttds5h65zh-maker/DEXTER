@@ -2,7 +2,7 @@
 From: Hassan Properties <leasing@hassanprops.example>
 Date: Fri, Nov 20, 2026 at 11:15 AM
 Subject: Tenancy renewal - Unit 1204
-To: <sultan@example.com>
+To: <yousef@example.com>
 
 
 Dear Tenant,

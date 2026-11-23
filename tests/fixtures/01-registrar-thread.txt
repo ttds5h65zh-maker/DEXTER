@@ -1,6 +1,6 @@
 From: Registrar Office <registrar@falconbay.example>
 Sent: Monday, November 23, 2026 8:02 AM
-To: Sultan
+To: Yousef
 Subject: RE: Graduation application – action needed
 
 Dear student,
@@ -17,7 +17,7 @@ Kind regards,
 Registrar Office
 Falcon Bay University
 
-From: Sultan <sultan@student.falconbay.example>
+From: Yousef <yousef@student.falconbay.example>
 Sent: Sunday, November 22, 2026 9:41 PM
 To: Registrar Office <registrar@falconbay.example>
 Subject: Graduation application

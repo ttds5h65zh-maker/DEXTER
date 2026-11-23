@@ -1,5 +1,5 @@
 Project sync — 23 Nov
-Attendees: Sultan, Noura, Faisal
+Attendees: Yousef, Noura, Faisal
 
 Decisions
 1. We will use PostgreSQL instead of MongoDB.
