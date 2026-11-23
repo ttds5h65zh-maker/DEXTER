@@ -113,10 +113,10 @@ test('quotes are anchored even when whitespace differs', () => {
   assert.equal(anchorQuote(text, 'not in the text'), null);
 });
 
-test('PDF text is read page by page', () => {
-  const { text, pages } = extractPdfText(fs.readFileSync(new URL('../samples/course-outline.pdf', import.meta.url)));
+test('PDF text is read page by page', async () => {
+  const { text, pages } = await extractPdfText(fs.readFileSync(new URL('../samples/course-outline.pdf', import.meta.url)));
   assert.equal(pages.length, 2);
   assert.match(text, /The individual design journal is due on 27 November 2026 at 11:59 PM through the course portal\./);
   assert.match(text.slice(pages[1].start), /^Open points/);
-  assert.throws(() => extractPdfText(Buffer.from('hello, not a pdf')), PdfError);
+  await assert.rejects(extractPdfText(Buffer.from('hello, not a pdf')), PdfError);
 });

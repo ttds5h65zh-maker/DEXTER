@@ -12,7 +12,17 @@ The home screen answers three questions: **What needs my attention today?**
 
 All dates and times are in **Asia/Dubai** (UTC+4).
 
-## Run it
+There are two ways to use it, with the same features:
+
+- **On claude.ai** — [open Dexter](https://claude.ai/artifact/22CZwAPQooL7EZocsEr2kR).
+  Nothing to install. Your work is saved as you go in a private space in your
+  Claude account (if you share the page, other people get their own empty
+  Dexter and never see yours), and "Ask Claude to read it" uses your own Claude
+  account. The link is private until you share it from the page's Share menu.
+- **On your computer** — run the local server below. Work is saved in a file
+  on your computer, and AI extraction uses an Anthropic API key if you set one.
+
+## Run it on your computer
 
 You need [Node.js](https://nodejs.org) 20 or newer. Nothing else is required.
 
@@ -58,8 +68,12 @@ Search (press `/`) covers sources, findings, tasks and drafts.
 ## AI extraction (optional)
 
 Without AI, Dexter uses built-in rules (English wording) plus your own review,
-and drafts start from templates. To let a Claude model do the extraction and
-drafting:
+and drafts start from templates.
+
+On claude.ai, tick **Ask Claude to read it** when importing (it is on by
+default). The first time, claude.ai asks you to allow the page to use Claude.
+
+On your computer, to let a Claude model do the extraction and drafting:
 
 ```bash
 npm install                                   # installs the Anthropic SDK
@@ -119,9 +133,13 @@ none are needed.
 ## Tests
 
 ```bash
-npm test            # unit, pilot-regression and HTTP workflow tests (includes a restart)
-npm run test:e2e    # browser walk-through (see below for Playwright)
+npm test               # unit, pilot-regression and HTTP workflow tests (includes a restart)
+npm run test:e2e       # browser walk-through of the local server (see below for Playwright)
+npm run test:hosted    # browser test of the claude.ai page, with stand-ins for claude.ai's services
 ```
+
+`npm start` also serves the claude.ai page at `http://localhost:4173/hosted`,
+where it runs entirely in the browser and saves in that browser.
 
 The browser test needs Playwright and Chromium:
 `npm install --no-save playwright && npx playwright install chromium`.
@@ -139,21 +157,26 @@ then repeats the review on a tablet-sized screen with a PDF. Screenshots go to
   Arabic needs AI to be on.
 - Scanned PDFs (images without a text layer) and password-protected PDFs cannot
   be read; Dexter says so and suggests pasting the text instead.
+- On claude.ai, approved calendar events open in Google Calendar or Outlook;
+  the downloadable `.ics` file is only offered by the local server.
 - The rules are deliberately cautious about dates, so some wording that is clear
   to a person still asks for confirmation.
 
 ## Layout
 
 ```
-server.js           HTTP server: JSON API and the web app (no dependencies)
-lib/core.js         sources, findings, tasks, drafts, approvals, history
+server.js           local HTTP server: JSON API, the web app, and /hosted (no dependencies)
+lib/core.js         sources, findings, tasks, drafts, approvals, history (runs in Node and the browser)
+lib/routes.js       the API, shared by the local server and the claude.ai page
 lib/extract.js      built-in extraction: segmentation, cue words, email headers
-lib/pdf.js          PDF text reader (pages, compression, right-to-left text)
-lib/ai.js           optional AI extraction and drafting (Anthropic SDK)
+lib/prompts.js      what Dexter asks Claude, shared by both ways of running
+lib/ai.js           AI on your computer (Anthropic SDK)
+lib/pdf.js          Node side of the PDF reader
 lib/drafts.js       template drafts and calendar files
 lib/seed.js         the fictional demo
-shared/dates.js     Asia/Dubai dates and date-phrase interpretation (server and browser)
-public/             the web app
+shared/pdf.js       PDF text reader (pages, compression, right-to-left text)
+shared/dates.js     Asia/Dubai dates and date-phrase interpretation
+public/             the web app; artifact.html and hosted.js are the claude.ai page
 samples/            sample email and PDF used by the import window
 tests/              tests and fixtures
 scripts/            scripts that regenerate the sample and test PDFs

@@ -1,5 +1,11 @@
-import { formatDate, formatTime, formatDue, relativeDay, diffDays, formatInstant, TZ_LABEL } from '/shared/dates.js';
-import { cleanQuote } from '/shared/text.js';
+import { formatDate, formatTime, formatDue, relativeDay, diffDays, formatInstant, addDays, TZ_LABEL } from './shared/dates.js';
+import { cleanQuote } from './shared/text.js';
+
+// Dexter runs in two places: as a local server (npm start), or as a page on
+// claude.ai where the same core runs in the browser ("hosted").
+const HOSTED = document.querySelector('meta[name="dexter-mode"]')?.getAttribute('content') === 'hosted';
+let backend = null; // the in-page backend when hosted
+let saveState = { state: 'saved' };
 
 // ---------------------------------------------------------------------------
 // State
@@ -47,6 +53,18 @@ const DRAFT_KIND = { email: 'Follow-up email', calendar: 'Calendar event', submi
 // Server
 // ---------------------------------------------------------------------------
 async function api(method, path, body, raw) {
+  if (HOSTED) {
+    try {
+      const json = await backend.api(method, path, body, raw);
+      if (json.state) S = json.state;
+      return json;
+    } catch (e) {
+      if (!e || !e.status) console.error(e);
+      const err = new Error(e && e.status ? e.message : 'Something went wrong inside Dexter. Reload the page; your saved work is kept.');
+      err.code = e && e.code;
+      throw err;
+    }
+  }
   const init = { method, headers: {} };
   if (raw) init.body = raw;
   else if (body !== undefined) {
@@ -96,13 +114,19 @@ function toast(message, kind = '') {
 // ---------------------------------------------------------------------------
 // Routing
 // ---------------------------------------------------------------------------
+// A hosted page keeps its place in memory: claude.ai passes only plain #names.
+let memHash = '#/home';
+const currentHash = () => (HOSTED ? memHash : location.hash);
 function route() {
-  const [p, q] = (location.hash.slice(1) || '/home').split('?');
+  const [p, q] = (currentHash().slice(1) || '/home').split('?');
   const parts = p.split('/').filter(Boolean);
   return { name: parts[0] || 'home', id: parts[1] || null, params: new URLSearchParams(q || '') };
 }
 const go = (hash) => {
-  if (location.hash === hash) render();
+  if (HOSTED) {
+    memHash = hash;
+    onRoute();
+  } else if (location.hash === hash) render();
   else location.hash = hash;
 };
 
@@ -147,7 +171,38 @@ function renderNav() {
   const pill = $('#ai-pill');
   pill.className = `pill ${S.meta.ai.available ? 'on' : ''}`;
   pill.innerHTML = S.meta.ai.available ? 'AI on' : 'AI off<span class="long">&nbsp;· manual review</span>';
-  pill.title = S.meta.ai.available ? `AI extraction is on (${S.meta.ai.model})` : 'AI extraction is off. Open Settings to see how to switch it on.';
+  pill.title = S.meta.ai.available ? (HOSTED ? 'Claude reads sources when you ask, through your Claude account' : `AI extraction is on (${S.meta.ai.model})`) : 'AI extraction is off. Open Settings to see why.';
+  renderSaveState();
+}
+
+/** "Saving…" / "Saved" / "Not saved" beside the search box on the hosted page. */
+function renderSaveState() {
+  const el = $('#save-pill');
+  if (!el) return;
+  el.hidden = !HOSTED;
+  if (!HOSTED || !S) return;
+  const storage = S.meta.env.storage;
+  const st = storage === 'memory' ? { state: 'unsaved' } : saveState;
+  el.className = `pill save ${st.state}`;
+  el.textContent = st.state === 'saving' ? 'Saving…' : st.state === 'saved' ? 'Saved' : 'Not saved';
+  el.title = st.message || (st.state === 'saved' ? (storage === 'account' ? 'Saved to your Claude account, private to you' : 'Saved in this browser only') : st.state === 'unsaved' ? 'Changes in this view are not saved' : '');
+}
+let lastSaveError = '';
+function onSaveStatus(st) {
+  saveState = st;
+  renderSaveState();
+  if (st.state === 'error' && st.message !== lastSaveError) toast(st.message, 'error');
+  lastSaveError = st.state === 'error' ? st.message : '';
+}
+
+/** Where the work is kept, when that is worth a banner (hosted page only). */
+function storageBanner() {
+  if (!HOSTED) return '';
+  const env = S.meta.env;
+  const text = env.notice
+    || (env.storage === 'browser' ? 'Dexter can’t reach your Claude account here, so it is saving your work in this browser only.'
+      : env.storage === 'memory' ? 'Dexter can’t save in this view, so changes will be lost when you close it.' : '');
+  return text ? `<div class="banner warn-banner"><span class="badge warn">Saving</span><p>${esc(text)}</p></div>` : '';
 }
 
 let lastRouteKey = '';
@@ -211,6 +266,7 @@ function viewHome() {
         <h1>${hello}. Here is where things stand.</h1>
       </div>
     </div>
+    ${storageBanner()}
     ${S.meta.hasDemo ? `<div class="banner"><span class="badge demo">Demo</span><p><b>You are looking at demo data.</b> The university and personal items marked Demo are fictional, so you can try Dexter without connecting anything. Your own imports sit alongside them.</p><button class="btn small" data-action="demo-remove">Remove demo data</button></div>` : ''}
     <div class="board">
       <section class="card board-col attention" aria-labelledby="h-att">
@@ -534,17 +590,48 @@ function viewDrafts() {
   </div>`;
 }
 
+const enc = encodeURIComponent;
+
+/** Links that open an approved email ready to send. Nothing is sent by Dexter. */
+function emailHandoff(d) {
+  const { to } = d.destination;
+  const gmail = `https://mail.google.com/mail/?view=cm&fs=1&to=${enc(to)}&su=${enc(d.subject)}&body=${enc(d.body)}`;
+  const outlook = `https://outlook.office.com/mail/deeplink/compose?to=${enc(to)}&subject=${enc(d.subject)}&body=${enc(d.body)}`;
+  const mailto = `mailto:${enc(to)}?subject=${enc(d.subject)}&body=${enc(d.body)}`;
+  return `<p class="small muted">Open it ready to send in</p>
+    <div class="row"><a class="btn primary" href="${gmail}" target="_blank" rel="noopener">Gmail</a><a class="btn" href="${outlook}" target="_blank" rel="noopener">Outlook</a><a class="btn" href="${mailto}">Mail app</a></div>
+    <div class="row"><button class="btn small" data-action="draft-copy" data-id="${d.id}">Copy text</button><button class="btn small" data-action="copy-address" data-id="${d.id}">Copy address</button></div>`;
+}
+
+/** Links that open an approved event in a calendar, where you save it yourself. */
+function calendarHandoff(d) {
+  const ev = d.event;
+  const compact = (date, time) => date.replace(/-/g, '') + (time ? 'T' + time.replace(':', '') + '00' : '');
+  let endDate = addDays(ev.date, 1);
+  let endTime = null;
+  if (ev.time) {
+    const mins = Number(ev.time.slice(0, 2)) * 60 + Number(ev.time.slice(3)) + (Number(ev.durationMinutes) || 60);
+    endDate = addDays(ev.date, Math.floor(mins / 1440));
+    endTime = `${String(Math.floor((mins % 1440) / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+  }
+  const google = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${enc(d.subject)}&dates=${compact(ev.date, ev.time)}/${compact(endDate, endTime)}&ctz=Asia/Dubai&details=${enc(d.body)}&location=${enc(ev.location || '')}`;
+  const iso = (date, time) => (time ? `${date}T${time}:00+04:00` : date);
+  const outlook = `https://outlook.office.com/calendar/0/deeplink/compose?subject=${enc(d.subject)}&startdt=${enc(iso(ev.date, ev.time))}&enddt=${enc(iso(endDate, endTime))}${ev.time ? '' : '&allday=true'}&body=${enc(d.body)}&location=${enc(ev.location || '')}`;
+  return `<p class="small muted">Add it to your calendar in</p>
+    <div class="row"><a class="btn primary" href="${google}" target="_blank" rel="noopener">Google Calendar</a><a class="btn" href="${outlook}" target="_blank" rel="noopener">Outlook</a>${HOSTED ? '' : `<a class="btn" href="/api/drafts/${d.id}/event.ics" download>Calendar file</a>`}</div>
+    <div class="row"><button class="btn small" data-action="draft-copy" data-id="${d.id}">Copy details</button></div>`;
+}
+
 function draftSide(d) {
   const finding = by('findings', d.findingId);
   const source = by('sources', d.sourceId);
   const approved = d.status === 'approved';
   const done = d.status === 'completed';
   const verb = d.kind === 'email' ? 'send' : d.kind === 'calendar' ? 'add it to your calendar' : 'submit';
-  const mailto = d.kind === 'email' ? `mailto:${encodeURIComponent(d.destination.to)}?subject=${encodeURIComponent(d.subject)}&body=${encodeURIComponent(d.body)}` : '';
   const how = d.kind === 'email'
-    ? 'No email account is connected, so Dexter cannot send this. After you approve, open it in your own mail app or copy the text.'
+    ? 'No email account is connected, so Dexter cannot send this. After you approve, open it ready to send in Gmail, Outlook or your mail app, or copy the text.'
     : d.kind === 'calendar'
-      ? 'No calendar is connected, so Dexter cannot change it. After you approve, download the event file and open it in your calendar.'
+      ? `No calendar is connected, so Dexter cannot change it. After you approve, add the event in Google Calendar or Outlook${HOSTED ? '' : ', or with the calendar file'}.`
       : 'Dexter cannot submit to university systems. After you approve, copy the text and submit it yourself.';
   return `
     <div class="card">
@@ -565,10 +652,10 @@ function draftSide(d) {
       </ol>
       ${d.status === 'needs_review' ? `<button class="btn primary" data-action="draft-approve" data-id="${d.id}">${d.kind === 'email' ? 'Approve for sending' : d.kind === 'calendar' ? 'Approve calendar change' : 'Approve for submission'}</button>
         <p class="small muted">Approving sends nothing. It unlocks the hand-off below and records that you checked this.</p>` : ''}
-      ${approved ? `<div class="row">
-          ${d.kind === 'email' ? `<a class="btn primary" href="${mailto}" data-action="noop">Open in mail app</a><button class="btn" data-action="draft-copy" data-id="${d.id}">Copy text</button>` : ''}
-          ${d.kind === 'calendar' ? `<a class="btn primary" href="/api/drafts/${d.id}/event.ics" download>Download calendar file</a>` : ''}
-          ${d.kind === 'submission' ? `<button class="btn primary" data-action="draft-copy" data-id="${d.id}">Copy text</button>` : ''}
+      ${approved ? `<div class="handoff">
+          ${d.kind === 'email' ? emailHandoff(d) : ''}
+          ${d.kind === 'calendar' ? calendarHandoff(d) : ''}
+          ${d.kind === 'submission' ? `<div class="row"><button class="btn primary" data-action="draft-copy" data-id="${d.id}">Copy text</button></div>` : ''}
         </div>
         <button class="btn" data-action="draft-complete" data-id="${d.id}">${d.kind === 'email' ? 'I sent it — track the reply' : d.kind === 'calendar' ? 'I added it to my calendar' : 'I submitted it'}</button>
         <p class="small muted">Editing the draft withdraws this approval.</p>` : ''}
@@ -706,6 +793,13 @@ function viewSearch(r) {
 // ---------------------------------------------------------------------------
 function aiExplain() {
   const ai = S.meta.ai;
+  if (HOSTED) {
+    if (ai.available) return `<p><span class="badge ok">On</span> When you import a source with “Ask Claude to read it” ticked, Claude reads it through your own Claude account and finds deadlines, decisions and open questions; it also writes follow-up drafts. The first time, you are asked to allow this page to use Claude.</p><p class="small muted">Every finding still has to quote a passage that is in your source, and dates are worked out by Dexter. Untick the box to use only the built-in rules.</p>`;
+    const why = ai.reason === 'not_granted'
+      ? 'Claude isn’t allowed for this page in this visit. Reload the page to be asked again.'
+      : 'Claude can’t be reached from this view, for example when the page is opened outside claude.ai or while signed out.';
+    return `<p><span class="badge">Off</span> ${why}</p><p>Dexter still works: built-in rules pick out explicit dates, decisions and questions, you can select any passage in a source to add a finding yourself, and drafts start from templates.</p>`;
+  }
   if (ai.available) return `<p><span class="badge ok">On</span> Dexter uses <code>${esc(ai.model)}</code> to find deadlines, decisions and open questions, and to write follow-up drafts. Every AI finding still has to match a passage in your source, and dates are worked out by Dexter, not by the model.</p><p class="small muted">When AI is on, the text of a source you import is sent to Anthropic’s API. You can switch it off for a single import in the import window, or entirely by starting Dexter with <code>DEXTER_AI=off</code>.</p>`;
   const why = ai.reason === 'no_sdk'
     ? 'An API key is set, but the Anthropic SDK is not installed. Stop Dexter, run <code>npm install</code> in the Dexter folder, and start it again.'
@@ -720,6 +814,20 @@ ANTHROPIC_API_KEY=sk-ant-… npm start</pre>
     <p class="small muted">When AI is on, the text of each source you import is sent to Anthropic’s API. Nothing is sent while it is off.</p>`;
 }
 
+function dataExplain() {
+  if (!HOSTED) {
+    return `<p>Sources, findings, tasks, drafts and their history are saved in one file on this computer, <code>data/dexter.json</code>, after every change. Close Dexter and start it again and everything is as you left it.</p>
+      <div class="row"><a class="btn" href="/api/export" download>Download a copy</a></div>`;
+  }
+  const env = S.meta.env;
+  const where = env.storage === 'account'
+    ? 'Your sources, findings, tasks, drafts and their history are saved as you go, in a private space in your Claude account that only you can open. If you share this page, other people start with their own empty Dexter and never see yours.'
+    : env.storage === 'browser'
+      ? 'Dexter can’t reach your Claude account here, so your work is saved in this browser only. Open Dexter on claude.ai while signed in to keep it in your account.'
+      : 'Dexter can’t save in this view, so changes will be lost when you close it.';
+  return `<p>${esc(env.notice || where)}</p>${env.downloads ? '<div class="row"><button class="btn" data-action="export-data">Save a copy (.json)</button></div>' : ''}`;
+}
+
 function viewSettings() {
   return `<div class="page"><div class="page-head"><div><h1>Settings</h1></div></div>
     <div class="settings">
@@ -727,16 +835,15 @@ function viewSettings() {
       <section class="card"><h2>Connected accounts</h2>
         <p>No accounts are connected, and Dexter does not need any. It never sends email, submits coursework or changes a calendar by itself.</p>
         <dl class="kv">
-          <dt>Email</dt><dd>Not connected. Approved follow-ups open in your own mail app, or you copy the text.</dd>
-          <dt>Calendar</dt><dd>Not connected. Approved events download as a calendar file you open yourself.</dd>
+          <dt>Email</dt><dd>Not connected. Approved follow-ups open ready to send in Gmail, Outlook or your mail app, or you copy the text.</dd>
+          <dt>Calendar</dt><dd>Not connected. Approved events open in Google Calendar or Outlook${HOSTED ? '' : ', or as a calendar file'}, where you save them yourself.</dd>
           <dt>University portal</dt><dd>Not connected. Approved submissions are yours to upload.</dd>
         </dl>
         <p class="small muted">Account connections are not part of this version. Only data you import yourself is stored.</p></section>
       <section class="card"><h2>Dates and times</h2><p>Everything is shown and scheduled in <b>Asia/Dubai</b> (UTC+4). It is now ${esc(formatTime(S.meta.time))} on ${esc(formatDate(today(), { long: true }))}.</p>
         <p class="small muted">Unclear dates such as “next Thursday” or “end of the week” are shown with Dexter’s reading and wait for your confirmation before anything is scheduled.</p></section>
       <section class="card"><h2>Your data</h2>
-        <p>Sources, findings, tasks, drafts and their history are saved in one file on this computer, <code>data/dexter.json</code>, after every change. Close Dexter and start it again and everything is as you left it.</p>
-        <div class="row"><a class="btn" href="/api/export" download>Download a copy</a></div></section>
+        ${dataExplain()}</section>
       <section class="card"><h2>Demo data</h2>
         <p>${S.meta.hasDemo ? 'The demo is loaded: one fictional university email, one personal note, and the tasks and draft made from them. Everything from the demo carries a Demo label.' : 'The demo data has been removed.'}</p>
         <div class="row">${S.meta.hasDemo ? '<button class="btn" data-action="demo-remove">Remove demo data</button>' : ''}<button class="btn ${S.meta.hasDemo ? 'quiet' : ''}" data-action="demo-restore">${S.meta.hasDemo ? 'Reset demo data' : 'Load demo data'}</button></div></section>
@@ -770,10 +877,11 @@ function importModal(m) {
         <label class="field"><span>Written on (optional)</span><input class="input" type="date" name="sourceDate" value="${esc(m.sourceDate || '')}" max="${today()}">
           <small>Used to work out “tomorrow” or “next Thursday”.</small></label>
       </div>
-      ${ai ? `<label class="row"><input type="checkbox" name="useAI" checked style="width:22px;height:22px"><span>Use AI extraction <span class="muted small">(sends this text to Anthropic’s API)</span></span></label>`
-        : `<p class="notice"><b>AI extraction is off.</b> Dexter will use its built-in rules, and you can add anything it misses by selecting text in the source. To switch AI on, set <code>ANTHROPIC_API_KEY</code> before starting Dexter (see <a href="#/settings" data-action="modal-close">Settings</a>).</p>`}
+      ${ai ? `<label class="row"><input type="checkbox" name="useAI" ${m.useAI === false ? '' : 'checked'} style="width:22px;height:22px"><span>${HOSTED ? 'Ask Claude to read it <span class="muted small">(uses your Claude account; can take up to a minute)</span>' : 'Use AI extraction <span class="muted small">(sends this text to Anthropic’s API)</span>'}</span></label>`
+        : HOSTED ? `<p class="notice"><b>Claude isn’t available here.</b> Dexter will use its built-in rules, and you can add anything it misses by selecting text in the source (see <a href="#/settings" data-action="modal-close">Settings</a>).</p>`
+          : `<p class="notice"><b>AI extraction is off.</b> Dexter will use its built-in rules, and you can add anything it misses by selecting text in the source. To switch AI on, set <code>ANTHROPIC_API_KEY</code> before starting Dexter (see <a href="#/settings" data-action="modal-close">Settings</a>).</p>`}
     </form>
-    <footer><button class="btn quiet" data-action="modal-close">Cancel</button><button class="btn primary" type="submit" form="import-form" ${m.working ? 'disabled' : ''}>${m.working ? 'Reading…' : 'Import and review'}</button></footer>
+    <footer>${m.working && m.usingAI ? `<span class="small muted" style="flex:1">${HOSTED ? 'Claude is reading the source…' : 'AI is reading the source…'}</span>${HOSTED ? '<button class="btn quiet" data-action="import-skip-ai">Use built-in rules instead</button>' : ''}` : '<button class="btn quiet" data-action="modal-close">Cancel</button>'}<button class="btn primary" type="submit" form="import-form" ${m.working ? 'disabled' : ''}>${m.working ? 'Reading…' : 'Import and review'}</button></footer>
   </div></div>`;
 }
 
@@ -828,6 +936,8 @@ async function submitImport(form) {
   if (m.tab === 'pdf' && !m.file) return toast('Choose a PDF first.', 'error');
   if (m.tab === 'pdf' && m.file.size > 25 * 1048576) return toast('That PDF is larger than 25 MB. Split it, or copy the text you need and paste it as a note.', 'error');
   m.working = true;
+  m.useAI = useAI;
+  m.usingAI = useAI && S.meta.ai.available;
   renderModal();
   try {
     let res;
@@ -854,18 +964,27 @@ async function submitImport(form) {
 // ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Copied.');
+  } catch {
+    toast('Copying is blocked here. Select the text and copy it by hand.', 'error');
+  }
+}
+
 const actions = {
   'noop': () => {},
   'open-import': () => openModal({ type: 'import', tab: 'email' }),
   'import-tab': (el) => { keepImportFields(); ui.modal.tab = el.dataset.tab; renderModal(); },
   'import-sample-email': async () => {
     keepImportFields();
-    ui.modal.text = await (await fetch('/samples/messy-email.txt')).text();
+    ui.modal.text = await (await fetch('samples/messy-email.txt')).text();
     renderModal();
   },
   'import-sample-pdf': async () => {
     keepImportFields();
-    const blob = await (await fetch('/samples/course-outline.pdf')).blob();
+    const blob = await (await fetch('samples/course-outline.pdf')).blob();
     ui.modal.file = new File([blob], 'course-outline.pdf', { type: 'application/pdf' });
     renderModal();
   },
@@ -947,15 +1066,23 @@ const actions = {
   },
   'draft-approve': (el) => run(() => api('POST', `/api/drafts/${el.dataset.id}/approve`), 'Approved. Nothing has been sent; the next step is yours.'),
   'draft-complete': (el) => run(() => api('POST', `/api/drafts/${el.dataset.id}/complete`), 'Recorded.'),
-  'draft-copy': async (el) => {
+  'draft-copy': (el) => {
     const d = by('drafts', el.dataset.id);
+    const text = d.kind === 'email' ? `Subject: ${d.subject}\n\n${d.body}`
+      : d.kind === 'calendar' ? [d.subject, `${formatDue(d.event, { long: true })} (${TZ_LABEL})`, d.event.location, '', d.body].filter((x) => x !== undefined && x !== null).join('\n')
+        : d.body;
+    return copyText(text);
+  },
+  'copy-address': (el) => copyText(by('drafts', el.dataset.id).destination.to),
+  'export-data': async () => {
     try {
-      await navigator.clipboard.writeText(d.kind === 'email' ? `Subject: ${d.subject}\n\n${d.body}` : d.body);
-      toast('Copied.');
-    } catch {
-      toast('Copying is blocked in this browser. Select the text and copy it by hand.', 'error');
+      if (await backend.saveFile('dexter-export.json', backend.exportData())) toast('Saved.');
+      else toast('Saving files isn’t available in this view.', 'error');
+    } catch (e) {
+      if (!e || e.code !== 'declined') toast('The file wasn’t saved.', 'error');
     }
   },
+  'import-skip-ai': () => { if (backend) backend.abortAI(); },
   'draft-delete': (el) => ask({ title: 'Discard this draft?', body: 'The draft will be deleted. The finding it came from is kept.', confirm: 'Discard draft', danger: true },
     () => run(async () => { draftDirty = null; await api('DELETE', `/api/drafts/${el.dataset.id}`); go('#/drafts'); }, 'Draft discarded.')),
   'demo-remove': () => ask({ title: 'Remove the demo data?', body: 'The fictional sources, tasks and drafts marked Demo will be removed. Anything you imported yourself stays. You can load the demo again from Settings.', confirm: 'Remove demo data' },
@@ -1010,11 +1137,15 @@ document.addEventListener('click', (ev) => {
   if (el && el.dataset.action === 'modal-close-scrim' && ev.target !== el) el = null;
   // close any open "more" menu when clicking elsewhere
   document.querySelectorAll('details.more[open]').forEach((d) => { if (!d.contains(ev.target) || (el && el.closest('.menu'))) d.removeAttribute('open'); });
-  if (!el) return;
-  const fn = actions[el.dataset.action];
-  if (!fn) return;
-  if (el.tagName === 'BUTTON') ev.preventDefault();
-  Promise.resolve(fn(el, ev)).catch((err) => toast(err.message, 'error'));
+  // On the hosted page, links to other views change the view in memory.
+  const link = HOSTED ? ev.target.closest('a[href^="#/"]') : null;
+  if (link) ev.preventDefault();
+  const fn = el && actions[el.dataset.action];
+  if (fn) {
+    if (el.tagName === 'BUTTON') ev.preventDefault();
+    Promise.resolve(fn(el, ev)).catch((err) => toast(err.message, 'error'));
+  }
+  if (link) go(link.getAttribute('href'));
 });
 document.addEventListener('submit', (ev) => {
   const form = ev.target.closest('[data-form]');
@@ -1028,8 +1159,9 @@ document.addEventListener('input', (ev) => {
   if (ev.target.id === 'search') {
     const q = ev.target.value.trim();
     const hash = q ? `#/search?q=${encodeURIComponent(q)}` : '#/search';
-    if (route().name === 'search') history.replaceState(null, '', hash);
-    else location.hash = hash;
+    if (route().name !== 'search') go(hash);
+    else if (HOSTED) memHash = hash;
+    else history.replaceState(null, '', hash);
     if (route().name === 'search') { renderNav(); $('#main').innerHTML = viewSearch(route()); }
   }
 });
@@ -1086,7 +1218,7 @@ document.addEventListener('selectionchange', () => {
 });
 document.addEventListener('mousedown', (ev) => { if (ev.target.closest('#sel-bar button')) ev.preventDefault(); });
 
-window.addEventListener('hashchange', async () => {
+async function onRoute() {
   await flushDraft().catch(() => {});
   const r = route();
   if (r.name === 'source' && r.params.get('f')) {
@@ -1109,10 +1241,13 @@ window.addEventListener('hashchange', async () => {
     const mark = $(`#source-text mark[data-id="${r.params.get('f')}"]`);
     if (mark) mark.scrollIntoView({ block: 'center' });
   }
-});
+}
+if (!HOSTED) window.addEventListener('hashchange', onRoute);
 window.addEventListener('beforeunload', () => {
   // save an edit typed in the last moment before closing the tab
-  if (draftDirty) fetch(`/api/drafts/${draftDirty.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(draftDirty.patch), keepalive: true });
+  if (!draftDirty) return;
+  if (HOSTED) flushDraft().catch(() => {});
+  else fetch(`/api/drafts/${draftDirty.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(draftDirty.patch), keepalive: true });
 });
 // Keep "today" honest if the app stays open past midnight or the server restarts.
 document.addEventListener('visibilitychange', async () => {
@@ -1122,6 +1257,11 @@ document.addEventListener('visibilitychange', async () => {
 
 (async function start() {
   try {
+    if (HOSTED) {
+      $('#main').innerHTML = `<div class="page"><div class="card empty"><b>Opening your command center…</b>Loading your sources, tasks and drafts.</div></div>`;
+      const { start: startHosted } = await import('./hosted.js');
+      backend = await startHosted({ onSaveStatus });
+    }
     await api('GET', '/api/state');
   } catch (err) {
     $('#main').innerHTML = `<div class="page"><div class="card empty"><b>Dexter could not load.</b>${esc(err.message)}</div></div>`;

@@ -12,10 +12,11 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Dexter, AppError } from './lib/core.js';
+import { Dexter, AppError, emptyState } from './lib/core.js';
 import { loadAI } from './lib/ai.js';
-import { extractPdfText, PdfError } from './lib/pdf.js';
+import { extractPdfText } from './lib/pdf.js';
 import { seedDemo } from './lib/seed.js';
+import { createRoutes, matchRoute } from './lib/routes.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 4173;
@@ -26,7 +27,7 @@ const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml', '.json': 'application/json', '.pdf': 'application/pdf', '.txt': 'text/plain; charset=utf-8', '.ico': 'image/x-icon',
 };
-const STATIC_ROOTS = { '/shared/': path.join(here, 'shared'), '/samples/': path.join(here, 'samples'), '/': path.join(here, 'public') };
+const STATIC_ROOTS = { '/shared/': path.join(here, 'shared'), '/samples/': path.join(here, 'samples'), '/lib/': path.join(here, 'lib'), '/': path.join(here, 'public') };
 
 // Reads a request body up to `limit` bytes. A larger body is read to the end and
 // thrown away, so the browser receives the "too large" answer instead of a reset.
@@ -120,59 +121,32 @@ function serveStatic(req, res, pathname) {
   fs.createReadStream(file).pipe(res);
 }
 
+/** State lives in one JSON file, rewritten atomically after every change. */
+function fileStore(dir) {
+  const file = path.join(dir, 'dexter.json');
+  fs.mkdirSync(dir, { recursive: true });
+  const isNew = !fs.existsSync(file);
+  return {
+    file,
+    isNew,
+    state: isNew ? emptyState() : JSON.parse(fs.readFileSync(file, 'utf8')),
+    persist(state) {
+      fs.writeFileSync(file + '.tmp', JSON.stringify(state, null, 1));
+      fs.renameSync(file + '.tmp', file);
+    },
+  };
+}
+
 async function main() {
   const ai = await loadAI();
-  const dexter = new Dexter({ dataDir: DATA_DIR, ai });
-  if (dexter.isNew) {
+  const store = fileStore(DATA_DIR);
+  const dexter = new Dexter({ state: store.state, persist: store.persist, ai, env: { mode: 'local', storage: 'file' } });
+  dexter.file = store.file;
+  if (store.isNew) {
     if (process.env.DEXTER_DEMO !== 'off') await seedDemo(dexter);
     dexter.save();
   }
-
-  // method + path pattern → handler(params, req, url). Handlers return extra fields for the response.
-  const routes = [
-    ['GET', '/api/state', () => ({})],
-    ['POST', '/api/sources', async (p, req) => ({ sourceId: (await dexter.importSource(await readJson(req))).id })],
-    ['POST', '/api/sources/pdf', async (p, req, url) => {
-      const buf = await readBody(req, 25 * 1048576);
-      let parsed;
-      try {
-        parsed = extractPdfText(buf);
-      } catch (err) {
-        if (err instanceof PdfError) throw new AppError(422, 'pdf_' + err.code, err.message);
-        throw new AppError(422, 'pdf_unreadable', 'Dexter could not read this PDF. Paste its text instead.');
-      }
-      const source = await dexter.importSource({
-        kind: 'pdf',
-        text: parsed.text,
-        pages: parsed.pages,
-        filename: (url.searchParams.get('filename') || 'document.pdf').slice(0, 200),
-        title: url.searchParams.get('title') || parsed.title || '',
-        sourceDate: url.searchParams.get('sourceDate') || '',
-        useAI: url.searchParams.get('useAI') !== 'false',
-      });
-      return { sourceId: source.id };
-    }],
-    ['POST', '/api/sources/:id/reextract', async (p) => ({ added: await dexter.reextract(p.id) })],
-    ['POST', '/api/sources/:id/findings', async (p, req) => ({ findingId: dexter.manualFinding(p.id, await readJson(req)).id })],
-    ['DELETE', '/api/sources/:id', (p) => { dexter.deleteSource(p.id); return {}; }],
-    ['PATCH', '/api/findings/:id', async (p, req) => { dexter.updateFinding(p.id, await readJson(req)); return {}; }],
-    ['POST', '/api/findings/:id/task', async (p, req) => ({ taskId: dexter.taskFromFinding(p.id, await readJson(req)).id })],
-    ['POST', '/api/drafts', async (p, req) => ({ draftId: (await dexter.createDraft(await readJson(req))).id })],
-    ['PATCH', '/api/drafts/:id', async (p, req) => { dexter.updateDraft(p.id, await readJson(req)); return {}; }],
-    ['POST', '/api/drafts/:id/approve', (p) => { dexter.approveDraft(p.id); return {}; }],
-    ['POST', '/api/drafts/:id/complete', (p) => { dexter.completeDraft(p.id); return {}; }],
-    ['DELETE', '/api/drafts/:id', (p) => { dexter.deleteDraft(p.id); return {}; }],
-    ['POST', '/api/tasks', async (p, req) => ({ taskId: dexter.createTask(await readJson(req)).id })],
-    ['PATCH', '/api/tasks/:id', async (p, req) => { dexter.updateTask(p.id, await readJson(req)); return {}; }],
-    ['DELETE', '/api/tasks/:id', (p) => { dexter.deleteTask(p.id); return {}; }],
-    ['POST', '/api/demo/remove', () => { dexter.removeDemo(); return {}; }],
-    ['POST', '/api/demo/restore', async () => { dexter.removeDemo(); await seedDemo(dexter); return {}; }],
-  ].map(([method, pattern, handler]) => ({
-    method,
-    handler,
-    re: new RegExp('^' + pattern.replace(/:[a-z]+/g, '([^/]+)') + '$'),
-    keys: (pattern.match(/:[a-z]+/g) || []).map((k) => k.slice(1)),
-  }));
+  const routes = createRoutes(dexter, { readPdf: extractPdfText });
 
   const server = http.createServer(async (req, res) => {
     for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
@@ -185,6 +159,13 @@ async function main() {
     try {
       if (!url.pathname.startsWith('/api/')) {
         if (req.method !== 'GET' && req.method !== 'HEAD') throw new AppError(405, 'method', 'Method not allowed.');
+        // The claude.ai page, wrapped the way claude.ai wraps it, for trying it locally.
+        // It runs entirely in the browser and saves in that browser.
+        if (url.pathname === '/hosted') {
+          const page = fs.readFileSync(path.join(here, 'public', 'artifact.html'), 'utf8');
+          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
+          return res.end(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body>${page}</body></html>`);
+        }
         return serveStatic(req, res, url.pathname);
       }
       // Requests that change data must come from Dexter's own page.
@@ -199,16 +180,16 @@ async function main() {
         res.writeHead(200, { 'content-type': 'application/json', 'content-disposition': 'attachment; filename="dexter-export.json"' });
         return res.end(JSON.stringify(dexter.state, null, 2));
       }
-      for (const route of routes) {
-        if (route.method !== req.method) continue;
-        const m = route.re.exec(url.pathname);
-        if (!m) continue;
-        const params = Object.fromEntries(route.keys.map((k, i) => [k, decodeURIComponent(m[i + 1])]));
-        const extra = await route.handler(params, req, url);
-        res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-        return res.end(JSON.stringify({ ...extra, state: dexter.snapshot() }));
-      }
-      throw new AppError(404, 'not_found', 'Not found.');
+      const hit = matchRoute(routes, req.method, url.pathname);
+      if (!hit) throw new AppError(404, 'not_found', 'Not found.');
+      const request = {
+        query: url.searchParams,
+        json: () => readJson(req),
+        bytes: () => readBody(req, 25 * 1048576),
+      };
+      const extra = await hit.route.handler(hit.params, request);
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      return res.end(JSON.stringify({ ...extra, state: dexter.snapshot() }));
     } catch (err) {
       const status = err instanceof AppError ? err.status : 500;
       if (status === 500) console.error(err);

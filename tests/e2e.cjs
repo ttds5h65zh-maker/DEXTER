@@ -182,20 +182,20 @@ async function step(name, fn) {
     draftUrl = page.url();
     assert.match(await page.locator('#draft-side').innerText(), /INTENDED DESTINATION\s+m\.qasim@falconbay\.example/i);
     assert.match(await page.locator('#draft-side').innerText(), /Dexter cannot send this/);
-    assert.equal(await page.getByRole('link', { name: 'Open in mail app' }).count(), 0, 'no hand-off before approval');
+    assert.equal(await page.getByRole('link', { name: 'Mail app', exact: true }).count(), 0, 'no hand-off before approval');
     const body = page.locator('.composer textarea');
     await body.fill('Hi Mariam,\n\nThanks for this. I will scan the signed agreement and send it to the placement office on Sunday.\n\nYousef');
     await page.locator('#save-state', { hasText: 'Saved at' }).waitFor();
     await shot('06-draft-review');
     await page.getByRole('button', { name: 'Approve for sending' }).click();
-    await page.getByRole('link', { name: 'Open in mail app' }).waitFor();
-    const href = await page.getByRole('link', { name: 'Open in mail app' }).getAttribute('href');
+    await page.getByRole('link', { name: 'Mail app', exact: true }).waitFor();
+    const href = await page.getByRole('link', { name: 'Mail app', exact: true }).getAttribute('href');
     assert.ok(href.startsWith('mailto:m.qasim%40falconbay.example?subject=') && href.includes('placement%20office%20on%20Sunday'));
     await shot('07-draft-approved');
     // editing after approval withdraws it
     await page.locator('#d-subject').fill('Internship agreement: on its way');
     await page.getByRole('button', { name: 'Approve for sending' }).waitFor();
-    assert.equal(await page.getByRole('link', { name: 'Open in mail app' }).count(), 0);
+    assert.equal(await page.getByRole('link', { name: 'Mail app', exact: true }).count(), 0);
     await page.locator('#save-state', { hasText: 'Saved at' }).waitFor();
   });
 

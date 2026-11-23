@@ -109,17 +109,17 @@ test('reply prefixes are removed from subjects', () => {
   assert.equal(stripReplyPrefixes('Rental agreement'), 'Rental agreement');
 });
 
-test('PDFs from other generators: ASCII85 streams, encryption, scans', () => {
-  const notice = extractPdfText(fixture('10-reportlab-notice.pdf', null));
+test('PDFs from other generators: ASCII85 streams, encryption, scans', async () => {
+  const notice = await extractPdfText(fixture('10-reportlab-notice.pdf', null));
   assert.equal(notice.pages.length, 2);
   assert.equal(notice.title, 'Parking permit notice');
   assert.match(notice.text, /Permits for the 2026\/27 academic year must be renewed by 4 December 2026\./);
-  assert.throws(() => extractPdfText(fixture('13-encrypted.pdf', null)), { code: 'encrypted' });
-  assert.throws(() => extractPdfText(fixture('12-image-only.pdf', null)), { code: 'no_text' });
+  await assert.rejects(extractPdfText(fixture('13-encrypted.pdf', null)), { code: 'encrypted' });
+  await assert.rejects(extractPdfText(fixture('12-image-only.pdf', null)), { code: 'no_text' });
 });
 
-test('Arabic in PDFs comes out in reading order, ligatures become letters', () => {
-  const { text } = extractPdfText(fixture('16-chromium-arabic.pdf', null));
+test('Arabic in PDFs comes out in reading order, ligatures become letters', async () => {
+  const { text } = await extractPdfText(fixture('16-chromium-arabic.pdf', null));
   assert.match(text, /Notice from the fictional Falcon Bay housing office\./);
   assert.ok(text.includes('الامتحان في 5 ديسمبر 2026 الساعة 10:00 في القاعة B'), text);
   assert.ok(text.includes('يرجى دفع الرسوم قبل يوم الخميس.'));

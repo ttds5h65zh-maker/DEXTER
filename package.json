@@ -8,7 +8,8 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test tests/*.test.js",
-    "test:e2e": "node tests/e2e.cjs"
+    "test:e2e": "node tests/e2e.cjs",
+    "test:hosted": "node tests/hosted.e2e.cjs"
   },
   "optionalDependencies": {
     "@anthropic-ai/sdk": ">=0.136.0"
