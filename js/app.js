@@ -3,7 +3,7 @@
 // Privacy: the camera starts only from a tap, frames never leave the device,
 // nothing is stored, and the stream is stopped when you leave or hide the tab.
 
-import { METALS } from './jewellery.js';
+import { METALS, STYLES } from './jewellery.js';
 import { loadTracker, detect, delegateUsed } from './tracker.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -16,7 +16,8 @@ const state = {
   screen: 'landing',
   piece: 'ring',             // 'ring' | 'bracelet' | 'both'
   fingers: new Set(['ring']),
-  metal: 'yellow',
+  styles: ['signature'],     // up to 3 designs, stacked in this order
+  metal: 'yellow',           // 'yellow' | 'rose' | 'white' | 'mix'
   facing: 'environment',     // rear camera by default
   mirror: false,
 };
@@ -249,7 +250,7 @@ async function ensureOverlay() {
   const { Overlay, TUNING } = await import('./overlay.js');
   overlay = new Overlay($('#overlay'));
   await overlay.init();
-  overlay.setSelection({ piece: state.piece, fingers: state.fingers, metal: state.metal });
+  overlay.setSelection({ piece: state.piece, fingers: state.fingers, styles: state.styles, metal: state.metal });
   if (DEBUG) window.perlee = { overlay, TUNING };
   return overlay;
 }
@@ -324,7 +325,7 @@ async function openBrowse() {
     const { BrowseViewer } = await import('./browse.js');
     browser = new BrowseViewer($('#browse-canvas'));
   }
-  browser.setMetal(state.metal);
+  browser.setLook({ styles: state.styles, metal: state.metal });
   if (state.screen === 'browse') browser.start();
 }
 
@@ -340,7 +341,20 @@ function buildSwatches() {
       b.dataset.value = key;
       b.setAttribute('aria-pressed', String(key === state.metal));
       b.setAttribute('aria-label', metal.label);
-      b.innerHTML = `<i class="swatch-${key}"></i><span>${metal.label.split(' ')[0]}</span>`;
+      b.innerHTML = `<i class="swatch-${key}"></i><span>${metal.short}</span>`;
+      group.appendChild(b);
+    }
+  });
+}
+
+function buildDesigns() {
+  document.querySelectorAll('[data-group="styles"]').forEach((group) => {
+    group.innerHTML = '';
+    for (const [key, style] of Object.entries(STYLES)) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.value = key;
+      b.textContent = style.label;
       group.appendChild(b);
     }
   });
@@ -353,9 +367,18 @@ function syncControls() {
     b.setAttribute('aria-pressed', String(state.fingers.has(b.dataset.value))));
   document.querySelectorAll('[data-group="metal"] button').forEach((b) =>
     b.setAttribute('aria-pressed', String(b.dataset.value === state.metal)));
+  document.querySelectorAll('[data-group="styles"]').forEach((group) => {
+    group.classList.toggle('is-stacked', state.styles.length > 1);
+    group.querySelectorAll('button').forEach((b) => {
+      const i = state.styles.indexOf(b.dataset.value);
+      b.setAttribute('aria-pressed', String(i >= 0));
+      b.dataset.order = i >= 0 ? i + 1 : '';
+    });
+  });
+  $('#browse-names').textContent = state.styles.map((k) => STYLES[k].label).join('  ·  ');
   $('[data-group="fingers"]').classList.toggle('is-disabled', state.piece === 'bracelet');
-  overlay?.setSelection({ piece: state.piece, fingers: state.fingers, metal: state.metal });
-  browser?.setMetal(state.metal);
+  overlay?.setSelection({ piece: state.piece, fingers: state.fingers, styles: state.styles, metal: state.metal });
+  browser?.setLook({ styles: state.styles, metal: state.metal });
   syncHeart();
 }
 
@@ -368,22 +391,25 @@ const FINGER_ORDER = ['index', 'middle', 'ring', 'little'];
 const shortlist = [];
 
 function currentLook() {
-  if (state.screen === 'browse') return { piece: 'both', fingers: [], metal: state.metal };
+  const styles = [...state.styles];
+  if (state.screen === 'browse') return { piece: 'both', fingers: [], styles, metal: state.metal };
   const fingers = state.piece === 'bracelet' ? [] : FINGER_ORDER.filter((f) => state.fingers.has(f));
-  return { piece: state.piece, fingers, metal: state.metal };
+  return { piece: state.piece, fingers, styles, metal: state.metal };
 }
-const lookKey = (l) => `${l.piece}|${l.fingers.join(',')}|${l.metal}`;
+const lookKey = (l) => `${l.piece}|${l.fingers.join(',')}|${l.styles.join('+')}|${l.metal}`;
 
 function listWords(words) {
   return words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} & ${words[words.length - 1]}`;
 }
 
 function describeLook(l) {
-  const ring = l.fingers.length > 1 ? 'Stacked beaded rings' : 'Beaded ring';
-  const name = l.piece === 'bracelet' ? 'Beaded bangle'
-    : l.piece === 'ring' ? ring
-    : `${l.fingers.length > 1 ? 'Stacked rings' : 'Beaded ring'} & bangle`;
-  let detail = METALS[l.metal].label;
+  const labels = l.styles.map((k) => STYLES[k].label);
+  const stacked = labels.length > 1;
+  const one = labels[0];
+  const name = l.piece === 'bracelet' ? (stacked ? 'Bangle stack' : `${one} bangle`)
+    : l.piece === 'ring' ? (stacked ? 'Ring stack' : `${one} ring${l.fingers.length > 1 ? 's' : ''}`)
+    : (stacked ? 'Ring & bangle stack' : `${one} ring & bangle`);
+  let detail = (stacked ? `${labels.join(' + ')} · ` : '') + METALS[l.metal].label;
   if (l.fingers.length) {
     const f = listWords(l.fingers);
     detail += ` · ${f.charAt(0).toUpperCase() + f.slice(1)} finger${l.fingers.length > 1 ? 's' : ''}`;
@@ -472,6 +498,16 @@ document.addEventListener('click', (e) => {
     } else {
       state.fingers.add(f);
     }
+  } else if (group === 'styles') {
+    const k = btn.dataset.value;
+    const i = state.styles.indexOf(k);
+    if (i >= 0) {
+      if (state.styles.length === 1) { toast('Keep at least one design'); return; }
+      state.styles.splice(i, 1);
+    } else {
+      if (state.styles.length === 3) { toast('Stack up to 3 designs'); return; }
+      state.styles.push(k);
+    }
   } else if (group === 'metal') {
     state.metal = btn.dataset.value;
   } else {
@@ -514,6 +550,7 @@ $('#flip-btn').addEventListener('click', async () => {
 // Boot: show the landing screen at once, then warm up the model in the background.
 // ---------------------------------------------------------------------------
 buildSwatches();
+buildDesigns();
 syncControls();
 history.replaceState(null, '');
 if (IN_APP) $('#inapp-banner').hidden = false;

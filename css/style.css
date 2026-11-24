@@ -200,8 +200,8 @@ h1 em { display: block; }
 /* ---------- Bottom controls ---------- */
 .controls {
   position: absolute; z-index: 3; left: 0; right: 0; bottom: 0;
-  display: flex; flex-direction: column; gap: 10px;
-  padding: 14px 14px calc(14px + var(--safe-b));
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 12px calc(12px + var(--safe-b));
   background: var(--glass);
   -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
   border-radius: 24px 24px 0 0;
@@ -222,11 +222,11 @@ h1 em { display: block; }
 .chips button[aria-pressed="true"] { background: var(--sage); border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
 .chips.is-disabled { opacity: .35; pointer-events: none; }
 
-.swatches { flex: 1; display: flex; gap: 8px; }
+.swatches { flex: 1; display: flex; gap: 6px; }
 .swatches button {
-  flex: 1; min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 8px;
+  flex: 1; min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 5px;
   border-radius: 999px; border: 1px solid rgba(46, 74, 59, .28); background: transparent;
-  font-size: 13px; padding: 0 6px;
+  font-size: 13px; padding: 0 4px; min-width: 0;
 }
 .swatches button i {
   width: 18px; height: 18px; border-radius: 50%; flex: none;
@@ -236,6 +236,7 @@ h1 em { display: block; }
 .swatch-yellow { background: radial-gradient(circle at 35% 30%, #FFF1C9, #E2B85C 55%, #A07B2C); }
 .swatch-rose   { background: radial-gradient(circle at 35% 30%, #FBE1D6, #DDA084 55%, #A86A55); }
 .swatch-white  { background: radial-gradient(circle at 35% 30%, #FFFFFF, #D8D6D0 55%, #9C9A95); }
+.swatch-mix    { background: conic-gradient(from 200deg, #E2B85C 0 33%, #DDA084 0 66%, #D8D6D0 0); }
 
 /* Phone held sideways: move the controls to the right edge so the hand stays visible. */
 @media (orientation: landscape) and (max-height: 520px) {
@@ -324,7 +325,17 @@ h1 em { display: block; }
 .heart-btn.pop { animation: heartPop 420ms ease; }
 @keyframes heartPop { 0% { transform: scale(1); } 40% { transform: scale(1.18); } 100% { transform: scale(1); } }
 
-#browse .browse-caption { bottom: calc(170px + var(--safe-b)); }
+#browse .browse-caption { bottom: auto; top: calc(72px + var(--safe-t)); padding: 0 20px; }
+
+/* Designs: pick up to three; numbers show the stacking order. */
+.designs button { position: relative; font-size: 13px; }
+.designs.is-stacked button[aria-pressed="true"]::after {
+  content: attr(data-order);
+  position: absolute; top: -6px; right: -3px;
+  width: 18px; height: 18px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--gold); color: #fff; font-size: 11px; line-height: 1;
+}
 
 .look-list { list-style: none; margin: 4px 0 20px; padding: 0; text-align: left; max-height: 38vh; overflow-y: auto; }
 .look-list li {
@@ -352,7 +363,7 @@ h1 em { display: block; }
   #tryon .heart-btn { width: 48px; height: 48px; }
   .notice-card { max-height: 100vh; overflow-y: auto; padding-top: 20px; }
   .look-list { max-height: 30vh; }
-  #browse .browse-caption { bottom: calc(150px + var(--safe-b)); }
+  #browse .browse-caption { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

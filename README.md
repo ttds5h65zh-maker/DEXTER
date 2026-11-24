@@ -4,6 +4,7 @@ A mobile web app that puts an original golden-bead ring and bangle on your hand 
 It was built for the Meridian Digital Team's "Perlée en lumière" campaign proposal.
 **This is not an official Van Cleef & Arpels experience.** The jewellery is an original 3D design inspired by golden beads.
 
+- Four original bead designs (Signature, Beads, Twin, Lumière), each as a ring and a bangle. You can stack up to 3 designs per finger and on the wrist, in yellow, rose or white gold, or a Mix that alternates them.
 - Static site: HTML, CSS and JS modules. No build step, no backend.
 - Hand tracking: MediaPipe Tasks Vision `HandLandmarker` 1.2.3 (VIDEO mode, GPU with CPU fallback, one hand).
 - Rendering: Three.js 0.187.0 with an orthographic camera aligned to the cover-fitted video, PBR gold lit by `RoomEnvironment`, and depth-only occluders that hide the back of each band.
@@ -30,6 +31,8 @@ All placement and size factors sit at the top of [`js/overlay.js`](js/overlay.js
 | `RING_POSITION` | 0 = at the knuckle, 1 = at the first joint (default 0.40) |
 | `FINGER_WIDTH` | finger diameter per finger, as a fraction of knuckle width |
 | `RING_FIT` | ring inner radius ÷ finger radius |
+| `STACK_GAP`, `BANGLE_GAP` | space between stacked rings / bangles |
+| `CONTACT_SHADOW` | strength of the soft shadow where a ring meets the finger (0 = off) |
 | `BRACELET_POSITION`, `BRACELET_RADIUS` | where the bangle sits behind the wrist, and its size |
 | `SMOOTH_MIN_CUTOFF`, `SMOOTH_BETA` | One Euro filter: steadiness vs. lag |
 
@@ -43,9 +46,9 @@ css/style.css          theme
 js/app.js              screens, camera, controls, frame loop
 js/tracker.js          MediaPipe HandLandmarker (GPU → CPU fallback)
 js/overlay.js          video↔screen mapping, ring/bangle placement, occluders (TUNING constants)
-js/jewellery.js        original ring + bangle models, metals
+js/jewellery.js        original bead designs (ring + bangle), metals, studio lighting
 js/oneEuro.js          One Euro filter
-js/browse.js           "Browse without camera" turntable
+js/browse.js           "Browse without camera" product-shot turntable
 vendor/                three.js (MIT), MediaPipe tasks-vision + WASM (Apache-2.0)
 models/                hand_landmarker.task (Apache-2.0, Google MediaPipe)
 fonts/                 Cormorant Garamond, Jost (SIL Open Font License)
