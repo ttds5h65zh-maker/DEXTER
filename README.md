@@ -52,7 +52,7 @@ js/browse.js           "Browse without camera" product-shot turntable
 vendor/                three.js (MIT), MediaPipe tasks-vision + WASM (Apache-2.0)
 models/                hand_landmarker.task (Apache-2.0, Google MediaPipe)
 fonts/                 Cormorant Garamond, Jost (SIL Open Font License)
-qr/                    qr.png / qr.svg (ivory), qr-slide.png / qr-slide.svg (transparent, with headline)
+qr/                    qr.png / qr.svg (ivory), qr-slide.png / qr-slide.svg (transparent, headline, no link)
 tools/make_qr.py       regenerates the plain QR code for a given URL
 tools/make_qr_slide.py regenerates the transparent slide version (needs fonttools + two TTF fonts)
 ```

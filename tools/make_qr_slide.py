@@ -1,13 +1,13 @@
 """Generate the slide-ready QR code: qr/qr-slide.png and qr/qr-slide.svg.
 
-Transparent background (the slide shows through), deep green code, a row of gold
-beads and the line "Try on the golden beads" above it, and the URL in gold below,
-matching the deck: deep green #2E4A3B, muted gold #B08D3C.
+Transparent background (the slide shows through), deep green code, and a row of gold
+beads and the line "Try on the golden beads" above it, matching the deck:
+deep green #2E4A3B, muted gold #B08D3C. Add --with-url to print the URL in gold below.
 The SVG text is converted to outlines, so it looks right even where the fonts
 aren't installed.
 
 Usage (needs segno, Pillow and fonttools in a virtualenv, plus two TTF fonts):
-    python3 tools/make_qr_slide.py URL CormorantGaramond-Italic.ttf Jost.ttf
+    python3 tools/make_qr_slide.py URL CormorantGaramond-Italic.ttf Jost.ttf [--with-url]
 """
 import sys
 from pathlib import Path
@@ -21,9 +21,11 @@ GREEN = "#2E4A3B"
 GOLD = "#B08D3C"
 GOLD_LIGHT = "#E2CB8E"
 
-if len(sys.argv) < 4:
+args = [a for a in sys.argv[1:] if not a.startswith("--")]
+WITH_URL = "--with-url" in sys.argv
+if len(args) < 3:
     sys.exit(__doc__)
-url, serif_path, sans_path = sys.argv[1:4]
+url, serif_path, sans_path = args[:3]
 label = url.removeprefix("https://").removesuffix("/")
 out = Path(__file__).resolve().parent.parent / "qr"
 out.mkdir(exist_ok=True)
@@ -45,7 +47,7 @@ HEAD_PARTS = [("Try on the ", GREEN), ("golden beads", GOLD)]
 CODE_Y = HEAD_BASELINE + 40 + 3 * MOD   # 3 modules of clear space under the line
 URL_SIZE = 44
 URL_BASELINE = CODE_Y + CODE + 3 * MOD + 30
-H = URL_BASELINE + 40
+H = URL_BASELINE + 40 if WITH_URL else CODE_Y + CODE + 4 * MOD  # standard 4-module clear space below
 CODE_X = (W - CODE) // 2
 
 
@@ -81,8 +83,9 @@ for r, row in enumerate(matrix):
             x0, y0 = (CODE_X + c * MOD) * S, (CODE_Y + r * MOD) * S
             draw.rectangle([x0, y0, x0 + MOD * S - 1, y0 + MOD * S - 1], fill=GREEN)
 
-url_font = ImageFont.truetype(sans_path, URL_SIZE * S)
-draw.text((W * S / 2, URL_BASELINE * S), label, font=url_font, fill=GOLD, anchor="ms")
+if WITH_URL:
+    url_font = ImageFont.truetype(sans_path, URL_SIZE * S)
+    draw.text((W * S / 2, URL_BASELINE * S), label, font=url_font, fill=GOLD, anchor="ms")
 
 img.resize((W, H), Image.LANCZOS).save(out / "qr-slide.png")
 
@@ -132,7 +135,8 @@ code_path = "".join(
     for r, row in enumerate(matrix) for c, dark in enumerate(row) if dark
 )
 svg.append(f'<path d="{code_path}" fill="{GREEN}" shape-rendering="crispEdges"/>')
-svg.append(text_paths(sans_path, label, URL_SIZE, W / 2, URL_BASELINE, GOLD, align="center")[0])
+if WITH_URL:
+    svg.append(text_paths(sans_path, label, URL_SIZE, W / 2, URL_BASELINE, GOLD, align="center")[0])
 svg.append("</svg>")
 (out / "qr-slide.svg").write_text("\n".join(svg) + "\n", encoding="utf-8")
 print(f"Slide QR for {url}: {W}x{H}px, version {qr.version}, error level {qr.error} -> {out}")
