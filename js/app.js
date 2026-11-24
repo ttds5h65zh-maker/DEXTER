@@ -49,6 +49,8 @@ function show(screen, { push = true } = {}) {
 
   if (prev === 'tryon') stopTryOn();
   if (prev === 'browse' && browser) browser.stop();
+  closeSheets();
+  syncHeart();
 
   // Let the phone's back button return to the landing screen instead of leaving the site.
   if (push && screen !== 'landing') history.pushState({ screen }, '');
@@ -354,7 +356,106 @@ function syncControls() {
   $('[data-group="fingers"]').classList.toggle('is-disabled', state.piece === 'bracelet');
   overlay?.setSelection({ piece: state.piece, fingers: state.fingers, metal: state.metal });
   browser?.setMetal(state.metal);
+  syncHeart();
 }
+
+// ---------------------------------------------------------------------------
+// My shortlist + boutique visit (demo only).
+// Looks are kept in memory on this screen only: nothing is stored or sent,
+// and the list is gone when the page is closed.
+// ---------------------------------------------------------------------------
+const FINGER_ORDER = ['index', 'middle', 'ring', 'little'];
+const shortlist = [];
+
+function currentLook() {
+  if (state.screen === 'browse') return { piece: 'both', fingers: [], metal: state.metal };
+  const fingers = state.piece === 'bracelet' ? [] : FINGER_ORDER.filter((f) => state.fingers.has(f));
+  return { piece: state.piece, fingers, metal: state.metal };
+}
+const lookKey = (l) => `${l.piece}|${l.fingers.join(',')}|${l.metal}`;
+
+function listWords(words) {
+  return words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} & ${words[words.length - 1]}`;
+}
+
+function describeLook(l) {
+  const ring = l.fingers.length > 1 ? 'Stacked beaded rings' : 'Beaded ring';
+  const name = l.piece === 'bracelet' ? 'Beaded bangle'
+    : l.piece === 'ring' ? ring
+    : `${l.fingers.length > 1 ? 'Stacked rings' : 'Beaded ring'} & bangle`;
+  let detail = METALS[l.metal].label;
+  if (l.fingers.length) {
+    const f = listWords(l.fingers);
+    detail += ` · ${f.charAt(0).toUpperCase() + f.slice(1)} finger${l.fingers.length > 1 ? 's' : ''}`;
+  }
+  return { name, detail };
+}
+
+function syncHeart() {
+  const saved = shortlist.some((l) => lookKey(l) === lookKey(currentLook()));
+  document.querySelectorAll('.heart-btn').forEach((b) => b.setAttribute('aria-pressed', String(saved)));
+  document.querySelectorAll('[data-count]').forEach((el) => { el.textContent = shortlist.length; });
+}
+
+function toggleLook(btn) {
+  const look = currentLook();
+  const i = shortlist.findIndex((l) => lookKey(l) === lookKey(look));
+  if (i >= 0) {
+    shortlist.splice(i, 1);
+    toast('Removed from My shortlist');
+  } else {
+    shortlist.push(look);
+    toast('Saved to My shortlist');
+    btn.classList.remove('pop');
+    void btn.offsetWidth; // restart the little "pop" animation
+    btn.classList.add('pop');
+  }
+  syncHeart();
+}
+
+function renderShortlist() {
+  const list = $('#look-list');
+  list.innerHTML = '';
+  for (const look of shortlist) {
+    const { name, detail } = describeLook(look);
+    const li = document.createElement('li');
+    li.innerHTML = `<i class="look-swatch swatch-${look.metal}"></i>
+      <span class="look-text"><span class="look-name"></span><span class="look-detail"></span></span>
+      <button class="look-remove" type="button" data-action="remove-look" aria-label="Remove">×</button>`;
+    li.querySelector('.look-name').textContent = name;
+    li.querySelector('.look-detail').textContent = detail;
+    li.querySelector('.look-remove').dataset.key = lookKey(look);
+    list.appendChild(li);
+  }
+  $('#shortlist-empty').hidden = shortlist.length > 0;
+}
+
+function openSheet(id) {
+  closeSheets();
+  $(id).hidden = false;
+}
+function closeSheets() {
+  $('#shortlist-sheet').hidden = true;
+  $('#booking-sheet').hidden = true;
+}
+
+function openBooking() {
+  $('#booking-text').textContent =
+    'In the live experience, your shortlist goes to a boutique advisor who prepares these pieces for your visit.';
+  $('#advisor-btn').hidden = false;
+  openSheet('#booking-sheet');
+}
+
+function speakToAdvisor() {
+  $('#booking-text').textContent =
+    'Thank you. In the live experience, an advisor would now reach out to arrange your visit. This is a demo, so nothing has been sent.';
+  $('#advisor-btn').hidden = true;
+}
+
+// Tapping the dimmed background closes a sheet.
+['#shortlist-sheet', '#booking-sheet'].forEach((id) => {
+  $(id).addEventListener('click', (e) => { if (e.target === e.currentTarget) closeSheets(); });
+});
 
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('button');
@@ -378,6 +479,17 @@ document.addEventListener('click', (e) => {
     if (action === 'home') goHome();
     if (action === 'copy-link') copyLink();
     if (action === 'resume') startTryOn();
+    if (action === 'save-look') toggleLook(btn);
+    if (action === 'open-shortlist') { renderShortlist(); openSheet('#shortlist-sheet'); }
+    if (action === 'remove-look') {
+      const i = shortlist.findIndex((l) => lookKey(l) === btn.dataset.key);
+      if (i >= 0) shortlist.splice(i, 1);
+      renderShortlist();
+      syncHeart();
+    }
+    if (action === 'book-visit') openBooking();
+    if (action === 'speak-advisor') speakToAdvisor();
+    if (action === 'close-sheet') closeSheets();
     return;
   }
   syncControls();

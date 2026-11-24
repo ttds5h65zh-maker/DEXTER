@@ -81,6 +81,12 @@
     <div id="fps" class="fps" hidden></div>
 
     <div class="controls" role="group" aria-label="Try-on options">
+      <div class="fab-row">
+        <button class="pill-btn" data-action="open-shortlist" type="button">My shortlist <span class="count" data-count>0</span></button>
+        <button class="heart-btn" data-action="save-look" type="button" aria-pressed="false" aria-label="Save this look to My shortlist">
+          <svg viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg>
+        </button>
+      </div>
       <div class="control-row">
         <span class="control-label">Piece</span>
         <div class="segmented" data-group="piece">
@@ -120,6 +126,12 @@
       <p class="browse-sub">The Maison's golden beads, stacked your way</p>
     </div>
     <div class="controls controls-browse" role="group" aria-label="Metal">
+      <div class="fab-row">
+        <button class="pill-btn" data-action="open-shortlist" type="button">My shortlist <span class="count" data-count>0</span></button>
+        <button class="heart-btn" data-action="save-look" type="button" aria-pressed="false" aria-label="Save this look to My shortlist">
+          <svg viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg>
+        </button>
+      </div>
       <div class="control-row">
         <span class="control-label">Metal</span>
         <div class="swatches" data-group="metal"></div>
@@ -136,6 +148,33 @@
         <button class="btn btn-primary" id="notice-primary" type="button"></button>
         <button class="btn btn-secondary" id="notice-secondary" type="button"></button>
       </div>
+    </div>
+  </div>
+
+  <!-- ===================== SHORTLIST + BOUTIQUE (demo only: nothing is sent) ===================== -->
+  <div id="shortlist-sheet" class="notice" hidden role="dialog" aria-modal="true" aria-labelledby="shortlist-title">
+    <div class="notice-card">
+      <h2 id="shortlist-title">My shortlist</h2>
+      <ul id="look-list" class="look-list"></ul>
+      <p id="shortlist-empty" class="sheet-empty">Tap the heart to save the look you’re wearing.</p>
+      <div class="notice-actions">
+        <button class="btn btn-primary" data-action="book-visit" type="button">Book a boutique visit</button>
+        <button class="btn btn-secondary" data-action="close-sheet" type="button">Close</button>
+      </div>
+      <p class="sheet-footnote">Kept on this screen only. Nothing is stored or sent.</p>
+    </div>
+  </div>
+
+  <div id="booking-sheet" class="notice" hidden role="dialog" aria-modal="true" aria-labelledby="booking-title">
+    <div class="notice-card">
+      <div class="beads-ornament beads-ornament-small" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+      <h2 id="booking-title">Book a boutique visit</h2>
+      <p id="booking-text">In the live experience, your shortlist goes to a boutique advisor who prepares these pieces for your visit.</p>
+      <div class="notice-actions">
+        <button class="btn btn-primary" id="advisor-btn" data-action="speak-advisor" type="button">Speak to an advisor</button>
+        <button class="btn btn-secondary" data-action="close-sheet" type="button">Back</button>
+      </div>
+      <p class="sheet-footnote">Concept demo: nothing is sent anywhere.</p>
     </div>
   </div>
 
