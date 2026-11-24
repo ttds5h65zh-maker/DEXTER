@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#F6F3EA">
+  <meta name="description" content="Perlée en lumière: a concept virtual try-on prototype.">
+  <!-- No analytics, no cookies. Every file below is served from this site. -->
+  <meta name="referrer" content="no-referrer">
+  <title>Perlée en lumière</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23B08D3C' stroke-width='3'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="modulepreload" href="vendor/three/three.module.js">
+  <link rel="modulepreload" href="vendor/three/three.core.js">
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three/three.module.js" } }
+  </script>
+</head>
+<body>
+
+  <!-- ===================== LANDING ===================== -->
+  <main id="landing" class="screen is-active" aria-labelledby="title">
+    <div class="landing-inner">
+      <div class="beads-ornament" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <h1 id="title">Perlée <em>en lumière</em></h1>
+      <p class="tagline">Try on the golden beads</p>
+
+      <div id="inapp-banner" class="inapp-banner" hidden>
+        <strong>Open this page in Safari or Chrome</strong>
+        <span>This in-app browser can't use the camera.</span>
+        <button class="btn btn-small" data-action="copy-link" type="button">Copy link</button>
+      </div>
+
+      <div class="actions">
+        <button id="start-btn" class="btn btn-primary" type="button">Start try-on</button>
+        <button id="browse-btn" class="btn btn-secondary" type="button">Browse without camera</button>
+      </div>
+
+      <p class="privacy">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z"/></svg>
+        The camera only starts when you tap. Everything is processed on your phone. Nothing is recorded, uploaded or stored.
+      </p>
+    </div>
+    <footer class="footer">
+      Concept prototype by Meridian Digital Team for the Perlée en lumière proposal. Not an official Van Cleef &amp; Arpels experience.
+    </footer>
+  </main>
+
+  <!-- ===================== LIVE TRY-ON ===================== -->
+  <section id="tryon" class="screen" aria-label="Live try-on">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="overlay"></canvas>
+
+    <div class="topbar">
+      <button class="icon-btn" data-action="home" type="button" aria-label="Back">
+        <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <span class="topbar-title">Perlée <em>en lumière</em></span>
+      <button id="flip-btn" class="icon-btn" type="button" aria-label="Switch camera">
+        <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><path d="M9.5 13.5a2.5 2.5 0 0 0 4.6 1.3M14.5 12.5a2.5 2.5 0 0 0-4.6-1.3"/><path d="M14.5 15.5v-1.2h-1.2M9.5 10.5v1.2h1.2"/></svg>
+      </button>
+    </div>
+
+    <!-- Gold beads pulse while the hand model loads -->
+    <div id="loader" class="loader" hidden>
+      <div class="bead-row" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+      <p>Preparing the try-on…</p>
+    </div>
+
+    <p id="hint" class="hint" hidden>Hold up your hand, fingers relaxed and slightly apart</p>
+
+    <div id="resume" class="center-card" hidden>
+      <p>The camera paused while you were away.</p>
+      <button class="btn btn-primary" data-action="resume" type="button">Resume camera</button>
+    </div>
+
+    <div id="fps" class="fps" hidden></div>
+
+    <div class="controls" role="group" aria-label="Try-on options">
+      <div class="control-row">
+        <span class="control-label">Piece</span>
+        <div class="segmented" data-group="piece">
+          <button type="button" data-value="ring" aria-pressed="true">Ring</button>
+          <button type="button" data-value="bracelet" aria-pressed="false">Bracelet</button>
+          <button type="button" data-value="both" aria-pressed="false">Both</button>
+        </div>
+      </div>
+      <div class="control-row" id="finger-row">
+        <span class="control-label">Fingers</span>
+        <div class="chips" data-group="fingers">
+          <button type="button" data-value="index" aria-pressed="false">Index</button>
+          <button type="button" data-value="middle" aria-pressed="false">Middle</button>
+          <button type="button" data-value="ring" aria-pressed="true">Ring</button>
+          <button type="button" data-value="little" aria-pressed="false">Little</button>
+        </div>
+      </div>
+      <div class="control-row">
+        <span class="control-label">Metal</span>
+        <div class="swatches" data-group="metal"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== BROWSE WITHOUT CAMERA ===================== -->
+  <section id="browse" class="screen" aria-label="Browse the pieces">
+    <canvas id="browse-canvas"></canvas>
+    <div class="topbar topbar-light">
+      <button class="icon-btn" data-action="home" type="button" aria-label="Back">
+        <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <span class="topbar-title">Perlée <em>en lumière</em></span>
+      <span class="icon-btn-spacer"></span>
+    </div>
+    <div class="browse-caption">
+      <p class="browse-names"><span>Beaded ring</span><span class="dot">·</span><span>Beaded bangle</span></p>
+      <p class="browse-sub">The Maison's golden beads, stacked your way</p>
+    </div>
+    <div class="controls controls-browse" role="group" aria-label="Metal">
+      <div class="control-row">
+        <span class="control-label">Metal</span>
+        <div class="swatches" data-group="metal"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== MESSAGES (errors, in-app browser) ===================== -->
+  <div id="notice" class="notice" hidden role="dialog" aria-modal="true" aria-labelledby="notice-title">
+    <div class="notice-card">
+      <h2 id="notice-title"></h2>
+      <p id="notice-text"></p>
+      <div class="notice-actions">
+        <button class="btn btn-primary" id="notice-primary" type="button"></button>
+        <button class="btn btn-secondary" id="notice-secondary" type="button"></button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
